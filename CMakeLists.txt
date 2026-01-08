@@ -21,11 +21,10 @@ find_package(Threads REQUIRED)
 #------------------------------------------------------------------------------
 
 file(GLOB_RECURSE CAPY_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/capy/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/capy/*.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/capy/*.hpp")
 file(GLOB_RECURSE CAPY_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/*.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/src/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/src/*.cpp")
 
 add_library(capy STATIC)
 
@@ -38,21 +37,24 @@ target_sources(capy
     PRIVATE
         ${CAPY_SOURCES})
 
-target_include_directories(capy PUBLIC include)
+target_include_directories(capy
+    PUBLIC
+        include
+    PRIVATE
+        src/capy)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/capy" PREFIX "capy" FILES ${CAPY_HEADERS})
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src/capy" PREFIX "src" FILES ${CAPY_SOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/src" PREFIX "src" FILES ${CAPY_SOURCES})
 
 #------------------------------------------------------------------------------
 # corosio library
 #------------------------------------------------------------------------------
 
 file(GLOB_RECURSE COROSIO_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/corosio/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/corosio/*.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/corosio/*.hpp")
 file(GLOB_RECURSE COROSIO_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/corosio/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/corosio/*.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/corosio/src/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/corosio/src/*.cpp")
 
 add_library(corosio STATIC)
 
@@ -65,14 +67,18 @@ target_sources(corosio
     PRIVATE
         ${COROSIO_SOURCES})
 
-target_include_directories(corosio PUBLIC include)
+target_include_directories(corosio
+    PUBLIC
+        include
+    PRIVATE
+        src/corosio)
 
 target_link_libraries(corosio
     PUBLIC
         capy)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/corosio" PREFIX "corosio" FILES ${COROSIO_HEADERS})
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src/corosio" PREFIX "src" FILES ${COROSIO_SOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src/corosio/src" PREFIX "src" FILES ${COROSIO_SOURCES})
 
 #------------------------------------------------------------------------------
 # Benchmark
