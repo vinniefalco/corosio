@@ -12,6 +12,7 @@
 
 #include <capy/config.hpp>
 #include <capy/affine.hpp>
+#include <capy/frame_allocator.hpp>
 
 #include <exception>
 #include <optional>
@@ -66,7 +67,9 @@ struct CAPY_CORO_AWAIT_ELIDABLE
         }
     };
 
-    struct promise_type : return_base<T>
+    struct promise_type
+        : frame_allocating_base
+        , return_base<T>
     {
         any_dispatcher ex_;
         any_dispatcher caller_ex_;

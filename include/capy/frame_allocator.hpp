@@ -135,8 +135,11 @@ static_assert(frame_allocator<default_frame_allocator>);
 struct frame_allocating_base
 {
 private:
-    struct header
+    static constexpr std::size_t header_magic = 0xCAFEBABEDEADBEEF;
+
+    struct alignas(alignof(std::max_align_t)) header
     {
+        std::size_t magic;
         frame_allocator_base* alloc;
     };
 
@@ -195,6 +198,7 @@ public:
             raw = ::operator new(total);
 
         auto* h = static_cast<header*>(raw);
+        h->magic = header_magic;
         h->alloc = alloc;
         return h + 1;
     }
@@ -203,12 +207,17 @@ public:
     operator delete(void* ptr, std::size_t size)
     {
         auto* h = static_cast<header*>(ptr) - 1;
+
+        // Verify header integrity
+        if(h->magic != header_magic)
+            std::terminate();
+
         std::size_t total = size + sizeof(header);
 
         if(h->alloc)
             h->alloc->deallocate(h, total);
         else
-            ::operator delete(h);
+            ::operator delete(h, total);
     }
 };
 

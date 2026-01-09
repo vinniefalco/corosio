@@ -94,7 +94,9 @@ template<
     typename Handler>
 struct root_task
 {
-    struct promise_type : root_task_result<T>
+    struct promise_type
+        : frame_allocating_base
+        , root_task_result<T>
     {
         Dispatcher d_;
         Allocator alloc_;
