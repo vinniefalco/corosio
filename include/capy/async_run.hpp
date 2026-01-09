@@ -213,14 +213,22 @@ do_root_task(Executor, Handler handler, task<T> t)
     thread, the task may begin executing immediately (inline). Otherwise,
     the task is queued for later execution.
 
+    The completion handler is invoked when the task finishes. For a
+    `task<T>`, the handler must provide overloads for success and error:
+
+    @code
+    void operator()(T result);       // Success (non-void)
+    void operator()();               // Success (void)
+    void operator()(std::exception_ptr ep);  // Error
+    @endcode
+
+    The default handler discards successful results and rethrows exceptions.
+    The executor and handler are captured by value to ensure they remain
+    valid for the duration of the task's execution.
+
     @param ex The executor on which to run the task.
     @param t The task to execute.
     @param handler Completion handler invoked when the task completes.
-                   For non-void tasks, called with T on success.
-                   For void tasks, called with no arguments on success.
-                   Called with std::exception_ptr on error.
-                   Defaults to default_handler which discards results
-                   and rethrows exceptions.
 
     @par Example
     @code
@@ -237,9 +245,6 @@ do_root_task(Executor, Handler handler, task<T> t)
     
     ioc.run();
     @endcode
-
-    @note The executor and handler are captured by value to ensure they
-    remain valid for the duration of the task's execution.
 */
 template<executor Executor, typename T, typename Handler = default_handler>
 void async_run(Executor ex, task<T> t, Handler handler = {})
