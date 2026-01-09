@@ -135,24 +135,18 @@ target_compile_options(bench
         $<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>)
 
 #------------------------------------------------------------------------------
-# Platform Service Provider Test
+# Service Provider Test
 #------------------------------------------------------------------------------
-
-file(GLOB_RECURSE TEST_SERVICE_PROVIDER_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/test/capy/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/test/capy/*.cpp")
 
 add_executable(test_service_provider)
 
 target_sources(test_service_provider
     PRIVATE
-        ${TEST_SERVICE_PROVIDER_SOURCES})
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/capy/service_provider.cpp")
 
 target_link_libraries(test_service_provider
     PRIVATE
         capy)
-
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/test/capy" PREFIX "test" FILES ${TEST_SERVICE_PROVIDER_SOURCES})
 
 target_compile_options(test_service_provider
     PRIVATE
@@ -185,6 +179,31 @@ target_link_options(test_async_run
   PRIVATE
     $<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>)
 
+#------------------------------------------------------------------------------
+# Task Test
+#------------------------------------------------------------------------------
+
+add_executable(test_task)
+
+target_sources(test_task
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/capy/task.cpp")
+
+target_link_libraries(test_task
+    PRIVATE
+        capy)
+
+target_compile_options(test_task
+    PRIVATE
+        $<$<CXX_COMPILER_ID:GNU>:-fcoroutines -Wall -Wextra -Wpedantic -Werror>
+        $<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++ -Wall -Wextra -Wpedantic -Werror>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /permissive->)
+
+target_link_options(test_task
+    PRIVATE
+        $<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>)
+
+#------------------------------------------------------------------------------
 # Platform Reactor Test
 #------------------------------------------------------------------------------
 

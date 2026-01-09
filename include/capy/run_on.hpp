@@ -34,6 +34,14 @@ struct run_on_awaitable
     E ex_;
     std::coroutine_handle<typename task<T>::promise_type> h_;
 
+    run_on_awaitable(
+        E ex,
+        std::coroutine_handle<typename task<T>::promise_type> h)
+        : ex_(std::move(ex))
+        , h_(h)
+    {
+    }
+
     bool await_ready() const noexcept
     {
         return false;
@@ -47,14 +55,14 @@ struct run_on_awaitable
             return std::move(*h_.promise().result_);
     }
 
-    // Affine awaitable: receives caller's executor for completion dispatch
+    // Affine awaitable: receives caller's dispatcher for completion dispatch
     template<dispatcher D>
     coro await_suspend(coro continuation, D const& caller_ex)
     {
         // 'this' is kept alive by co_await until completion
         // ex_ is valid for the entire operation
-        h_.promise().ex_ = &ex_;
-        h_.promise().caller_ex_ = &caller_ex;
+        h_.promise().ex_ = ex_;
+        h_.promise().caller_ex_ = caller_ex;
         h_.promise().continuation_ = continuation;
         return h_;
     }
@@ -63,8 +71,8 @@ struct run_on_awaitable
     // Precondition: 'this' is heap-allocated
     coro await_suspend_detached()
     {
-        h_.promise().ex_ = &ex_;
-        h_.promise().caller_ex_ = &ex_;
+        h_.promise().ex_ = ex_;
+        h_.promise().caller_ex_ = ex_;
         h_.promise().continuation_ = nullptr;
         h_.promise().detached_cleanup_ = +[](void* p) {
             delete static_cast<run_on_awaitable*>(p);

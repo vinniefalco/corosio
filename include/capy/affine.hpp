@@ -126,6 +126,15 @@ public:
     */
     any_dispatcher() = default;
 
+    /** Copy constructor.
+
+        Copies the internal pointer and function, preserving identity.
+        This enables the same-dispatcher optimization when passing
+        any_dispatcher through coroutine chains.
+    */
+    any_dispatcher(any_dispatcher const&) = default;
+    any_dispatcher& operator=(any_dispatcher const&) = default;
+
     /** Constructs from any dispatcher type.
 
         Captures a reference to the given dispatcher and stores a type-erased
@@ -137,6 +146,7 @@ public:
                  must outlive this wrapper.
     */
     template<dispatcher D>
+        requires (!std::same_as<std::decay_t<D>, any_dispatcher>)
     any_dispatcher(
         D const& d)
         : d_(&d)
