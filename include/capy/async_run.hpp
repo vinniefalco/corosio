@@ -20,6 +20,7 @@
 #include <utility>
 
 namespace capy {
+
 namespace detail {
 
 // Discards the result on success, rethrows on exception.
@@ -85,19 +86,25 @@ struct root_task_result<void>
     }
 };
 
-// lifetime storage for the Dispatcher value
-template<dispatcher Dispatcher, typename T, typename Handler>
+// lifetime storage for the Dispatcher and Allocator value
+template<
+    dispatcher Dispatcher,
+    frame_allocator Allocator,
+    typename T,
+    typename Handler>
 struct root_task
 {
     struct promise_type : root_task_result<T>
     {
         Dispatcher d_;
+        Allocator alloc_;
         Handler handler_;
         std::exception_ptr ep_;
 
-        template<typename D, typename H, typename... Args>
-        promise_type(D&& d, H&& h, Args&&...)
+        template<typename D, typename A, typename H, typename... Args>
+        promise_type(D&& d, A&& a, H&& h, Args&&...)
             : d_(std::forward<D>(d))
+            , alloc_(std::forward<A>(a))
             , handler_(std::forward<H>(h))
         {
         }
@@ -206,9 +213,13 @@ struct root_task
     }
 };
 
-template<dispatcher Dispatcher, typename T, typename Handler>
-root_task<Dispatcher, T, Handler>
-make_root_task(Dispatcher, Handler handler, task<T> t)
+template<
+    dispatcher Dispatcher,
+    frame_allocator Allocator,
+    typename T,
+    typename Handler>
+root_task<Dispatcher, Allocator, T, Handler>
+make_root_task(Dispatcher, Allocator, Handler handler, task<T> t)
 {
     if constexpr (std::is_void_v<T>)
         co_await std::move(t);
@@ -218,11 +229,16 @@ make_root_task(Dispatcher, Handler handler, task<T> t)
 
 /** Runs the root task with the given dispatcher and handler.
 */
-template<dispatcher Dispatcher, typename T, typename Handler>
-void run_root_task(Dispatcher d, task<T> t, Handler handler)
+template<
+    dispatcher Dispatcher,
+    frame_allocator Allocator,
+    typename T,
+    typename Handler>
+void
+run_root_task(Dispatcher d, Allocator alloc, task<T> t, Handler handler)
 {
-    auto root = make_root_task<Dispatcher, T, Handler>(
-        std::move(d), std::move(handler), std::move(t));
+    auto root = make_root_task<Dispatcher, Allocator, T, Handler>(
+        std::move(d), std::move(alloc), std::move(handler), std::move(t));
     root.h_.promise().d_(coro{root.h_}).resume();
     root.release();
 }
@@ -235,7 +251,9 @@ void run_root_task(Dispatcher d, task<T> t, Handler handler)
 
     @see async_run
 */
-template<dispatcher Dispatcher, frame_allocator Allocator = default_frame_allocator>
+template<
+    dispatcher Dispatcher,
+    frame_allocator Allocator = default_frame_allocator>
 struct async_runner
 {
     Dispatcher d_;
@@ -251,8 +269,8 @@ struct async_runner
     template<typename T>
     void operator()(task<T> t) &&
     {
-        run_root_task<Dispatcher, T, default_handler>(
-            std::move(d_), std::move(t), default_handler{});
+        run_root_task<Dispatcher, Allocator, T, default_handler>(
+            std::move(d_), std::move(alloc_), std::move(t), default_handler{});
     }
 
     /** Launch task with single overloaded handler.
@@ -270,8 +288,8 @@ struct async_runner
     template<typename T, typename Handler>
     void operator()(task<T> t, Handler h) &&
     {
-        run_root_task<Dispatcher, T, Handler>(
-            std::move(d_), std::move(t), std::move(h));
+        run_root_task<Dispatcher, Allocator, T, Handler>(
+            std::move(d_), std::move(alloc_), std::move(t), std::move(h));
     }
 
     /** Launch task with separate success/error handlers.
@@ -285,8 +303,8 @@ struct async_runner
     void operator()(task<T> t, H1 h1, H2 h2) &&
     {
         using combined = handler_pair<H1, H2>;
-        run_root_task<Dispatcher, T, combined>(
-            std::move(d_), std::move(t),
+        run_root_task<Dispatcher, Allocator, T, combined>(
+            std::move(d_), std::move(alloc_), std::move(t),
                 combined{std::move(h1), std::move(h2)});
     }
 };
@@ -360,10 +378,13 @@ auto async_run(Dispatcher d)
 
     @see async_runner
 */
-template<dispatcher Dispatcher, frame_allocator Allocator>
+template<
+    dispatcher Dispatcher,
+    frame_allocator Allocator>
 auto async_run(Dispatcher d, Allocator alloc)
 {
-    return detail::async_runner<Dispatcher, Allocator>{std::move(d), std::move(alloc)};
+    return detail::async_runner<
+        Dispatcher, Allocator>{std::move(d), std::move(alloc)};
 }
 
 } // namespace capy
