@@ -107,6 +107,111 @@ struct default_frame_allocator : frame_allocator_base
 
 static_assert(frame_allocator<default_frame_allocator>);
 
+/** Mixin base for promise types to support custom frame allocation.
+
+    Derive your promise_type from this class to enable custom coroutine
+    frame allocation via a thread-local allocator pointer.
+
+    The allocation strategy:
+    @li If a thread-local allocator is set, use it for allocation
+    @li Otherwise, fall back to global `::operator new`/`::operator delete`
+
+    A header is prepended to each allocation to store the allocator
+    pointer, enabling correct deallocation regardless of which allocator
+    was active at allocation time.
+
+    @par Usage
+    @code
+    // Before creating a coroutine:
+    frame_allocating_base::set_frame_allocator(my_allocator);
+    auto t = my_coroutine();  // Frame allocated with my_allocator
+
+    // Clear when done (optional)
+    frame_allocating_base::clear_frame_allocator();
+    @endcode
+
+    @see frame_allocator_base
+*/
+struct frame_allocating_base
+{
+private:
+    struct header
+    {
+        frame_allocator_base* alloc;
+    };
+
+    static frame_allocator_base*&
+    current_allocator() noexcept
+    {
+        static thread_local frame_allocator_base* alloc = nullptr;
+        return alloc;
+    }
+
+public:
+    /** Set the thread-local frame allocator.
+
+        The allocator will be used for subsequent coroutine frame
+        allocations on this thread until changed or cleared.
+
+        @param alloc The allocator to use. Must outlive all coroutines
+                     allocated with it.
+    */
+    static void
+    set_frame_allocator(frame_allocator_base& alloc) noexcept
+    {
+        current_allocator() = &alloc;
+    }
+
+    /** Clear the thread-local frame allocator.
+
+        Subsequent allocations will use global `::operator new`.
+    */
+    static void
+    clear_frame_allocator() noexcept
+    {
+        current_allocator() = nullptr;
+    }
+
+    /** Get the current thread-local frame allocator.
+
+        @return Pointer to current allocator, or nullptr if none set.
+    */
+    static frame_allocator_base*
+    get_frame_allocator() noexcept
+    {
+        return current_allocator();
+    }
+
+    static void*
+    operator new(std::size_t size)
+    {
+        std::size_t total = size + sizeof(header);
+        auto* alloc = current_allocator();
+
+        void* raw;
+        if(alloc)
+            raw = alloc->allocate(total);
+        else
+            raw = ::operator new(total);
+
+        auto* h = static_cast<header*>(raw);
+        h->alloc = alloc;
+        return h + 1;
+    }
+
+    static void
+    operator delete(void* ptr, std::size_t size)
+    {
+        auto* h = static_cast<header*>(ptr) - 1;
+        std::size_t total = size + sizeof(header);
+
+        if(h->alloc)
+            h->alloc->deallocate(h, total);
+        else
+            ::operator delete(h);
+    }
+};
+
 } // namespace capy
 
 #endif
