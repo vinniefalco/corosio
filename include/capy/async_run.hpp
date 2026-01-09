@@ -204,44 +204,59 @@ make_root_task(Dispatcher, Handler handler, task<T> t)
 
 } // namespace detail
 
-/** Starts a task for detached execution via a dispatcher.
+/** Launches a lazy task for detached execution.
 
-    This function initiates execution of a task by invoking the dispatcher
-    to schedule the coroutine. The dispatcher determines how and where
-    the task runs.
+    Initiates a task by invoking the dispatcher to schedule the coroutine.
+    This is analogous to Asio's `co_spawn`. The task begins executing when
+    the dispatcher schedules it; if the dispatcher permits inline execution,
+    the task runs immediately until it awaits an I/O operation.
 
-    The completion handler is invoked when the task finishes. For a
-    `task<T>`, the handler must provide overloads for success and error:
+    The dispatcher controls where and how the task resumes after each
+    suspension point. Tasks deal only with type-erased dispatchers
+    (`coro(coro)` signature), not typed executors. This leverages the
+    coroutine handle's natural type erasure.
 
+    @par Dispatcher Behavior
+    The dispatcher is invoked to start the task and propagated through
+    the coroutine chain via the affine awaitable protocol. When the task
+    completes, the handler runs on the same dispatcher context. If inline
+    execution is permitted, the call chain proceeds synchronously until
+    an I/O await suspends execution.
+
+    @par Handler Requirements
+    The handler must provide overloads for success and error:
     @code
-    void operator()(T result);       // Success (non-void)
-    void operator()();               // Success (void)
-    void operator()(std::exception_ptr ep);  // Error
+    void operator()(T result);            // Success (non-void task)
+    void operator()();                    // Success (void task)
+    void operator()(std::exception_ptr);  // Error
     @endcode
 
-    The default handler discards successful results and rethrows exceptions.
-    The dispatcher and handler are captured by value to ensure they remain
-    valid for the duration of the task's execution.
-
-    @param d The dispatcher used to schedule the task.
-    @param t The task to execute.
-    @param handler Completion handler invoked when the task completes.
+    @note The dispatcher and handler are captured by value. Use
+    `default_handler` to discard results and rethrow exceptions.
 
     @par Example
     @code
     io_context ioc;
-    
-    // Fire and forget (default handler)
+
+    // Fire and forget
     async_run(ioc.get_executor(), my_coroutine());
-    
+
     // With completion handler
     async_run(ioc.get_executor(), compute_value(), overload{
         [](int result) { std::cout << "Got: " << result << "\n"; },
-        [](std::exception_ptr ep) { }
+        [](std::exception_ptr) { }
     });
-    
+
+    // Donate thread to run queued work
     ioc.run();
     @endcode
+
+    @param d The dispatcher that schedules and resumes the task.
+    @param t The lazy task to execute.
+    @param handler Completion handler invoked when the task finishes.
+
+    @see task
+    @see dispatcher
 */
 template<
     dispatcher Dispatcher,
