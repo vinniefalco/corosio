@@ -1,5 +1,6 @@
 - For Javadoc style, follow the rules in @context/javadoc-rule.md
-- For C++ formatting, follow the rules in @context/coverage-rule.md
+- For coverage formatting, follow the rules in @context/coverage-rule.md
+- For C++ formatting, follow the rules in @context/format-rule.md
 
 # Benchmark: Callbacks vs Coroutines
 

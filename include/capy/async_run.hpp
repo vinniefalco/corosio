@@ -12,7 +12,6 @@
 
 #include <capy/config.hpp>
 #include <capy/affine.hpp>
-#include <capy/executor.hpp>
 #include <capy/task.hpp>
 #include <capy/detail/frame_pool.hpp>
 
@@ -49,7 +48,7 @@ struct default_handler
 
 namespace detail {
 
-template<executor Executor, typename T, typename Handler>
+template<dispatcher Dispatcher, typename T, typename Handler>
 struct root_task
 {
     template<typename U>
@@ -76,13 +75,13 @@ struct root_task
         : capy::detail::frame_pool::promise_allocator
         , result_base<T>
     {
-        Executor ex_;
+        Dispatcher d_;
         Handler handler_;
         std::exception_ptr ep_;
 
-        template<typename E, typename H, typename... Args>
-        promise_type(E&& e, H&& h, Args&&...)
-            : ex_(std::forward<E>(e))
+        template<typename D, typename H, typename... Args>
+        promise_type(D&& d, H&& h, Args&&...)
+            : d_(std::forward<D>(d))
             , handler_(std::forward<H>(h))
         {
         }
@@ -168,7 +167,7 @@ struct root_task
             template<class Promise>
             auto await_suspend(std::coroutine_handle<Promise> h)
             {
-                return a_.await_suspend(h, p_->ex_);
+                return a_.await_suspend(h, p_->d_);
             }
         };
 
@@ -193,9 +192,9 @@ struct root_task
     }
 };
 
-template<executor Executor, typename T, typename Handler>
-root_task<Executor, T, Handler>
-make_root_task(Executor, Handler handler, task<T> t)
+template<dispatcher Dispatcher, typename T, typename Handler>
+root_task<Dispatcher, T, Handler>
+make_root_task(Dispatcher, Handler handler, task<T> t)
 {
     if constexpr (std::is_void_v<T>)
         co_await std::move(t);
@@ -205,12 +204,11 @@ make_root_task(Executor, Handler handler, task<T> t)
 
 } // namespace detail
 
-/** Starts a task for execution on an executor.
+/** Starts a task for detached execution via a dispatcher.
 
-    This function initiates execution of a task by dispatching it to the
-    specified executor. If the caller is already running on the executor's
-    thread, the task may begin executing immediately (inline). Otherwise,
-    the task is queued for later execution.
+    This function initiates execution of a task by invoking the dispatcher
+    to schedule the coroutine. The dispatcher determines how and where
+    the task runs.
 
     The completion handler is invoked when the task finishes. For a
     `task<T>`, the handler must provide overloads for success and error:
@@ -222,10 +220,10 @@ make_root_task(Executor, Handler handler, task<T> t)
     @endcode
 
     The default handler discards successful results and rethrows exceptions.
-    The executor and handler are captured by value to ensure they remain
+    The dispatcher and handler are captured by value to ensure they remain
     valid for the duration of the task's execution.
 
-    @param ex The executor on which to run the task.
+    @param d The dispatcher used to schedule the task.
     @param t The task to execute.
     @param handler Completion handler invoked when the task completes.
 
@@ -246,14 +244,14 @@ make_root_task(Executor, Handler handler, task<T> t)
     @endcode
 */
 template<
-    executor Executor,
+    dispatcher Dispatcher,
     typename T,
     typename Handler = default_handler>
-void async_run(Executor ex, task<T> t, Handler handler = {})
+void async_run(Dispatcher d, task<T> t, Handler handler = {})
 {
-    auto root = detail::make_root_task<Executor, T, Handler>(
-        std::move(ex), std::move(handler), std::move(t));
-    root.h_.promise().ex_.dispatch(coro{root.h_}).resume();
+    auto root = detail::make_root_task<Dispatcher, T, Handler>(
+        std::move(d), std::move(handler), std::move(t));
+    root.h_.promise().d_(coro{root.h_}).resume();
     root.release();
 }
 
