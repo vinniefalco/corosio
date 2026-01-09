@@ -52,7 +52,6 @@ namespace detail {
 template<executor Executor, typename T, typename Handler>
 struct root_task
 {
-    // Helper base for result storage and return_void/return_value
     template<typename U>
     struct result_base
     {
