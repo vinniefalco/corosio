@@ -20,25 +20,20 @@
 #include <utility>
 
 namespace capy {
+namespace detail {
 
-/** Default completion handler for async_run.
-
-    Discards the result on success, rethrows on exception.
-*/
+// Discards the result on success, rethrows on exception.
 struct default_handler
 {
-    // Success with result (non-void tasks)
     template<typename T>
     void operator()(T&&) const noexcept
     {
     }
 
-    // Success with no result (void tasks)
     void operator()() const noexcept
     {
     }
 
-    // Error
     void operator()(std::exception_ptr ep) const
     {
         if(ep)
@@ -46,12 +41,9 @@ struct default_handler
     }
 };
 
-namespace detail {
-
-/** Combines two handlers into one: h1 for success, h2 for exception.
-*/
+// Combines two handlers into one: h1 for success, h2 for exception.
 template<typename H1, typename H2>
-struct split_handler
+struct handler_pair
 {
     H1 h1_;
     H2 h2_;
@@ -73,32 +65,33 @@ struct split_handler
     }
 };
 
+template<typename T>
+struct root_task_result
+{
+    std::optional<T> result_;
+
+    template<typename V>
+    void return_value(V&& value)
+    {
+        result_ = std::forward<V>(value);
+    }
+};
+
+template<>
+struct root_task_result<void>
+{
+    void return_void()
+    {
+    }
+};
+
+// lifetime storage for the Dispatcher value
 template<dispatcher Dispatcher, typename T, typename Handler>
 struct root_task
 {
-    template<typename U>
-    struct result_base
-    {
-        std::optional<U> result_;
-
-        template<typename V>
-        void return_value(V&& value)
-        {
-            result_ = std::forward<V>(value);
-        }
-    };
-
-    template<>
-    struct result_base<void>
-    {
-        void return_void()
-        {
-        }
-    };
-
     struct promise_type
         : capy::detail::frame_pool::promise_allocator
-        , result_base<T>
+        , root_task_result<T>
     {
         Dispatcher d_;
         Handler handler_;
@@ -145,7 +138,7 @@ struct root_task
                         h.destroy();
                         if(ep)
                             handler(ep);
-                        else if(result)
+                        else
                             handler(std::move(*result));
                     }
                     else
@@ -165,8 +158,6 @@ struct root_task
             };
             return awaiter{this};
         }
-
-        // return_void() or return_value() inherited from root_task_result
 
         void unhandled_exception()
         {
@@ -284,7 +275,7 @@ struct async_runner
             std::move(d_), std::move(t), std::move(h));
     }
 
-    /** Launch task with split handlers.
+    /** Launch task with separate success/error handlers.
 
         @param t The task to execute.
         @param h1 Handler called on success with the result value
@@ -294,9 +285,10 @@ struct async_runner
     template<typename T, typename H1, typename H2>
     void operator()(task<T> t, H1 h1, H2 h2) &&
     {
-        using combined = split_handler<H1, H2>;
+        using combined = handler_pair<H1, H2>;
         run_root_task<Dispatcher, T, combined>(
-            std::move(d_), std::move(t), combined{std::move(h1), std::move(h2)});
+            std::move(d_), std::move(t),
+                combined{std::move(h1), std::move(h2)});
     }
 };
 
@@ -336,7 +328,7 @@ struct async_runner
         [](std::exception_ptr) { }
     });
 
-    // Split handlers: h1 for value, h2 for exception
+    // Separate handlers: h1 for value, h2 for exception
     async_run(ex)(compute_value(),
         [](int result) { std::cout << result; },
         [](std::exception_ptr ep) { if (ep) std::rethrow_exception(ep); }
