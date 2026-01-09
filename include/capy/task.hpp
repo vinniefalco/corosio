@@ -23,28 +23,6 @@
 
 namespace capy {
 
-namespace detail {
-
-// Helper base to provide return_void or return_value without full class specialization
-template<typename T, typename Derived>
-struct task_return_base
-{
-    void return_value(T value)
-    {
-        static_cast<Derived*>(this)->result_ = std::move(value);
-    }
-};
-
-template<typename Derived>
-struct task_return_base<void, Derived>
-{
-    void return_void()
-    {
-    }
-};
-
-} // namespace detail
-
 /** A coroutine task type implementing the affine awaitable protocol.
 
     This task type represents an asynchronous operation that can be awaited.
@@ -79,9 +57,29 @@ template<typename T = void>
 struct CAPY_CORO_AWAIT_ELIDABLE
     task
 {
+    // Helper base for result storage and return_void/return_value
+    template<typename U>
+    struct return_base
+    {
+        std::optional<U> result_;
+
+        void return_value(U value)
+        {
+            result_ = std::move(value);
+        }
+    };
+
+    template<>
+    struct return_base<void>
+    {
+        void return_void()
+        {
+        }
+    };
+
     struct promise_type
         : capy::detail::frame_pool::promise_allocator
-        , detail::task_return_base<T, promise_type>
+        , return_base<T>
     {
         any_dispatcher ex_;
         any_dispatcher caller_ex_;
@@ -90,13 +88,6 @@ struct CAPY_CORO_AWAIT_ELIDABLE
         // Detached cleanup support for async_run
         void (*detached_cleanup_)(void*) = nullptr;
         void* detached_state_ = nullptr;
-
-        // Storage: monostate for void, optional<T> otherwise
-        [[no_unique_address]]
-        std::conditional_t<
-            std::is_void_v<T>,
-            std::monostate,
-            std::optional<T>> result_;
 
         task get_return_object()
         {
