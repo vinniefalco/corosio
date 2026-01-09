@@ -1,6 +1,10 @@
 # Coroutine-First I/O Execution Model
 
+## System Properties
+
 Optimized for coroutines-first, other models secondary
+
+## Definitions
 
 **Definition:** An `io_object` reflects operating-system level asynchronous operation which completes through a platform-specific reactor
 
@@ -10,7 +14,7 @@ Optimized for coroutines-first, other models secondary
 
 **Implication:** Because the `io_object` always resumes through the dispatcher, a coroutine at `final_suspend` is guaranteed to be executing on its own executor's context. When returning to a caller with the same executor (`caller_ex_ == ex_`), symmetric transfer can proceed without a `running_in_this_thread()` check—pointer equality is sufficient. When executors differ, `final_suspend` must dispatch through the caller's executor.
 
-## Flow Diagrams
+## Executor Model
 
 A _flow diagram_ signifies a composed asynchronous call chain reified as a series of co_awaits.
 
@@ -86,3 +90,32 @@ The `run_on` function is notional, representing an awaitable means of awaiting a
 - When `c3` returns, `c2` is resumed through `ex1`
 - When `c2` returns, its dispatcher compares equal to `c1`'s dispatcher and the transfer is symmetric; `ex1` is not invoked
 
+## Allocation Model
+
+C++20 coroutines support frame allocation customization through operator new and operator delete in the promise type. The call:
+```
+co_await f();
+```
+Calls the simple `operator new` and `operator delete`:
+```
+struct promise_type {
+    void* operator new(std::size_t size) { return ::operator new(size); }
+    void operator delete(void* ptr, std::size_t size) { ::operator delete(ptr, size); }
+};
+```
+
+The coroutine's arguments can be used to overload these operators. The call:
+```
+co_await f(std::allocator_arg, alloc, x);
+```
+Invokes allocator-aware `operator new`, where `std::allocator_arg_t` is the conventional detection tag:
+```
+struct promise_type {
+    template<typename Allocator, typename... Args>
+    void* operator new(std::size_t size, std::allocator_arg_t, Allocator alloc, Args&&...);
+    
+    template<typename Allocator, typename... Args>
+    void operator delete(void* ptr, std::size_t size, std::allocator_arg_t, Allocator, Args&&...);
+};
+```
+Allocator-aware `operator new` stores the allocator in the frame (appended after `size` bytes); matching `operator delete` recovers it for deallocation. If allocation fails and `get_return_object_on_allocation_failure()` exists in the promise, it is called instead of throwing. Compilers may elide frame allocation entirely (HALO) when coroutine lifetime is provably bounded by the caller.
