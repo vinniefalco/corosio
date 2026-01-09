@@ -208,15 +208,19 @@ do_root_task(Executor, Handler handler, task<T> t)
 
 /** Starts a task for execution on an executor.
 
-    This function initiates execution of a task by posting it to the
-    specified executor's work queue. The task will begin running when
-    the executor processes the posted work item.
+    This function initiates execution of a task by dispatching it to the
+    specified executor. If the caller is already running on the executor's
+    thread, the task may begin executing immediately (inline). Otherwise,
+    the task is queued for later execution.
 
     @param ex The executor on which to run the task.
     @param t The task to execute.
-    @param handler Completion handler called with T on success or
-                   std::exception_ptr on error. Defaults to default_handler
-                   which discards results and rethrows exceptions.
+    @param handler Completion handler invoked when the task completes.
+                   For non-void tasks, called with T on success.
+                   For void tasks, called with no arguments on success.
+                   Called with std::exception_ptr on error.
+                   Defaults to default_handler which discards results
+                   and rethrows exceptions.
 
     @par Example
     @code
