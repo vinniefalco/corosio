@@ -49,33 +49,33 @@ struct default_handler
 
 namespace detail {
 
-// Helper base for result storage and return_void/return_value
-template<typename T, typename Derived>
-struct root_task_result
-{
-    std::optional<T> result_;
-
-    template<typename U>
-    void return_value(U&& value)
-    {
-        result_ = std::forward<U>(value);
-    }
-};
-
-template<typename Derived>
-struct root_task_result<void, Derived>
-{
-    void return_void()
-    {
-    }
-};
-
 template<executor Executor, typename T, typename Handler>
 struct root_task
 {
+    // Helper base for result storage and return_void/return_value
+    template<typename U>
+    struct result_base
+    {
+        std::optional<U> result_;
+
+        template<typename V>
+        void return_value(V&& value)
+        {
+            result_ = std::forward<V>(value);
+        }
+    };
+
+    template<>
+    struct result_base<void>
+    {
+        void return_void()
+        {
+        }
+    };
+
     struct promise_type
         : capy::detail::frame_pool::promise_allocator
-        , root_task_result<T, promise_type>
+        , result_base<T>
     {
         Executor ex_;
         Handler handler_;
@@ -196,7 +196,7 @@ struct root_task
 
 template<executor Executor, typename T, typename Handler>
 root_task<Executor, T, Handler>
-do_root_task(Executor, Handler handler, task<T> t)
+make_root_task(Executor, Handler handler, task<T> t)
 {
     if constexpr (std::is_void_v<T>)
         co_await std::move(t);
@@ -246,10 +246,13 @@ do_root_task(Executor, Handler handler, task<T> t)
     ioc.run();
     @endcode
 */
-template<executor Executor, typename T, typename Handler = default_handler>
+template<
+    executor Executor,
+    typename T,
+    typename Handler = default_handler>
 void async_run(Executor ex, task<T> t, Handler handler = {})
 {
-    auto root = detail::do_root_task<Executor, T, Handler>(
+    auto root = detail::make_root_task<Executor, T, Handler>(
         std::move(ex), std::move(handler), std::move(t));
     root.h_.promise().ex_.dispatch(coro{root.h_}).resume();
     root.release();
