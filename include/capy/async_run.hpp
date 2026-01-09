@@ -73,28 +73,12 @@ struct root_task_result<void, Derived>
 template<executor Executor, typename T, typename Handler>
 struct root_task
 {
-    struct starter : executor_work
-    {
-        coro h_;
-
-        void operator()() override
-        {
-            h_.resume();
-        }
-
-        void destroy() override
-        {
-            // Not meant to be destroyed externally; owned by promise_type
-        }
-    };
-
     struct promise_type
         : capy::detail::frame_pool::promise_allocator
         , root_task_result<T, promise_type>
     {
         Executor ex_;
         Handler handler_;
-        starter starter_;
         std::exception_ptr ep_;
 
         template<typename E, typename H, typename... Args>
@@ -212,7 +196,7 @@ struct root_task
 
 template<executor Executor, typename T, typename Handler>
 root_task<Executor, T, Handler>
-async_run_wrapper(Executor, Handler handler, task<T> t)
+do_root_task(Executor, Handler handler, task<T> t)
 {
     if constexpr (std::is_void_v<T>)
         co_await std::move(t);
@@ -256,10 +240,9 @@ async_run_wrapper(Executor, Handler handler, task<T> t)
 template<executor Executor, typename T, typename Handler = default_handler>
 void async_run(Executor ex, task<T> t, Handler handler = {})
 {
-    auto root = detail::async_run_wrapper<Executor, T, Handler>(
+    auto root = detail::do_root_task<Executor, T, Handler>(
         std::move(ex), std::move(handler), std::move(t));
-    root.h_.promise().starter_.h_ = root.h_;
-    root.h_.promise().ex_.post(&root.h_.promise().starter_);
+    root.h_.promise().ex_.dispatch(coro{root.h_}).resume();
     root.release();
 }
 
