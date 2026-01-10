@@ -185,6 +185,27 @@ public:
         return current_allocator();
     }
 
+    /** Stored allocator pointer for propagation to child coroutines.
+
+        This is set by `await_suspend` when a task is awaited, capturing
+        the current thread-local allocator. It is then restored on each
+        resume point to ensure child coroutines inherit the allocator.
+    */
+    frame_allocator_base* alloc_ = nullptr;
+
+    /** Restore the stored allocator to thread-local storage.
+
+        Sets the thread-local allocator from the stored pointer,
+        enabling child coroutines to inherit the allocator. Called
+        on each resume point (initial_suspend and await_transform).
+    */
+    void
+    restore_frame_allocator() const noexcept
+    {
+        if(alloc_)
+            set_frame_allocator(*alloc_);
+    }
+
     static void*
     operator new(std::size_t size)
     {

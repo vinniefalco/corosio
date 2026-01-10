@@ -162,6 +162,9 @@ struct root_task
                     auto handler = std::move(p_->handler_);
                     auto ep = p_->ep_;
                     
+                    // Clear thread-local before destroy to avoid dangling pointer
+                    frame_allocating_base::clear_frame_allocator();
+
                     // For non-void, we need to get the result before destroy
                     if constexpr (!std::is_void_v<T>)
                     {
