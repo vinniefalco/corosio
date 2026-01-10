@@ -12,6 +12,7 @@
 
 #include <capy/config.hpp>
 #include <capy/affine.hpp>
+#include <capy/detail/recycling_frame_allocator.hpp>
 #include <capy/frame_allocator.hpp>
 #include <capy/task.hpp>
 
@@ -278,15 +279,69 @@ run_root_task(Dispatcher d, Allocator alloc, task<T> t, Handler handler)
     handler configurations. The dispatcher is captured and used
     to schedule the task execution.
 
+    @par Frame Allocator Activation
+    The constructor sets the thread-local frame allocator, enabling
+    coroutine frame recycling for tasks created after construction.
+    This requires the single-expression usage pattern.
+
+    @par Required Usage Pattern
+    @code
+    // CORRECT: Single expression - allocator active when task created
+    async_run(ex)(make_task());
+    async_run(ex)(make_task(), handler);
+
+    // INCORRECT: Split pattern - allocator may be changed between lines
+    auto runner = async_run(ex);  // Sets TLS
+    // ... other code may change TLS here ...
+    runner(make_task());          // Won't compile (deleted move)
+    @endcode
+
+    @par Enforcement Mechanisms
+    Multiple layers ensure correct usage:
+
+    @li <b>Deleted copy/move constructors</b> - Relies on C++17 guaranteed
+        copy elision. The runner can only exist as a prvalue constructed
+        directly at the call site. If this compiles, elision occurred.
+
+    @li <b>Rvalue-qualified operator()</b> - All operator() overloads are
+        &&-qualified, meaning they can only be called on rvalues. This
+        forces the idiom `async_run(ex)(task)` as a single expression.
+
+    @li <b>Runtime validation</b> - operator() verifies the TLS allocator
+        still points to this runner's allocator. If changed (e.g., via
+        std::move abuse), calls std::terminate to catch API misuse.
+
     @see async_run
 */
 template<
     dispatcher Dispatcher,
-    frame_allocator Allocator = default_frame_allocator>
+    frame_allocator Allocator = detail::recycling_frame_allocator>
 struct async_runner
 {
     Dispatcher d_;
     Allocator alloc_;
+
+    /** Construct runner and activate frame allocator.
+
+        Sets the thread-local frame allocator to enable recycling
+        for coroutines created after this call.
+
+        @param d The dispatcher for task execution.
+        @param a The frame allocator (default: recycling_frame_allocator).
+    */
+    async_runner(Dispatcher d, Allocator a)
+        : d_(std::move(d))
+        , alloc_(std::move(a))
+    {
+        frame_allocating_base::set_frame_allocator(alloc_);
+    }
+
+    // Enforce C++17 guaranteed copy elision.
+    // If this compiles, elision occurred and &alloc_ is stable.
+    async_runner(async_runner const&) = delete;
+    async_runner(async_runner&&) = delete;
+    async_runner& operator=(async_runner const&) = delete;
+    async_runner& operator=(async_runner&&) = delete;
 
     /** Launch task with default handler (fire-and-forget).
 
@@ -298,6 +353,8 @@ struct async_runner
     template<typename T>
     void operator()(task<T> t) &&
     {
+        if(frame_allocating_base::get_frame_allocator() != &alloc_)
+            std::terminate();
         run_root_task<Dispatcher, Allocator, T, default_handler>(
             std::move(d_), std::move(alloc_), std::move(t), default_handler{});
     }
@@ -317,6 +374,8 @@ struct async_runner
     template<typename T, typename Handler>
     void operator()(task<T> t, Handler h) &&
     {
+        if(frame_allocating_base::get_frame_allocator() != &alloc_)
+            std::terminate();
         run_root_task<Dispatcher, Allocator, T, Handler>(
             std::move(d_), std::move(alloc_), std::move(t), std::move(h));
     }
@@ -331,6 +390,8 @@ struct async_runner
     template<typename T, typename H1, typename H2>
     void operator()(task<T> t, H1 h1, H2 h2) &&
     {
+        if(frame_allocating_base::get_frame_allocator() != &alloc_)
+            std::terminate();
         using combined = handler_pair<H1, H2>;
         run_root_task<Dispatcher, Allocator, T, combined>(
             std::move(d_), std::move(alloc_), std::move(t),
@@ -393,7 +454,7 @@ struct async_runner
     @see dispatcher
 */
 template<dispatcher Dispatcher>
-auto async_run(Dispatcher d)
+[[nodiscard]] auto async_run(Dispatcher d)
 {
     return detail::async_runner<Dispatcher>{std::move(d), {}};
 }
@@ -410,7 +471,7 @@ auto async_run(Dispatcher d)
 template<
     dispatcher Dispatcher,
     frame_allocator Allocator>
-auto async_run(Dispatcher d, Allocator alloc)
+[[nodiscard]] auto async_run(Dispatcher d, Allocator alloc)
 {
     return detail::async_runner<
         Dispatcher, Allocator>{std::move(d), std::move(alloc)};
