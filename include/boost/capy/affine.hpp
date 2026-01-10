@@ -142,19 +142,8 @@ concept stoppable_awaitable = affine_awaitable<A, D, P> &&
     @par Lifetime
     The `any_dispatcher` stores a pointer to the original dispatcher object.
     The caller must ensure the referenced dispatcher outlives the `any_dispatcher`
-    instance. This is typically satisfied when the dispatcher is an executor
+    instance. This is typically satisfied when the dispatcher is a value
     stored in a coroutine promise or service provider.
-
-    @par Example
-    @code
-    void store_dispatcher(any_dispatcher d) {
-        // Can store any dispatcher type uniformly
-        auto h = d(some_coroutine);  // Invoke through type-erased interface
-    }
-
-    executor_base const& ex = get_executor();
-    store_dispatcher(ex);  // Implicitly converts to any_dispatcher
-    @endcode
 
     @see dispatcher
     @see executor_base
