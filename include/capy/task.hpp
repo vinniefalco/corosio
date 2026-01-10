@@ -13,6 +13,7 @@
 #include <capy/config.hpp>
 #include <capy/affine.hpp>
 #include <capy/frame_allocator.hpp>
+#include <capy/make_affine.hpp>
 
 #include <exception>
 #include <optional>
@@ -154,7 +155,18 @@ struct [[nodiscard]] CAPY_CORO_AWAIT_ELIDABLE
         template<class Awaitable>
         auto await_transform(Awaitable&& a)
         {
-            return transform_awaiter<Awaitable>{std::forward<Awaitable>(a), this};
+            using A = std::decay_t<Awaitable>;
+            if constexpr (affine_awaitable<A, any_dispatcher>)
+            {
+                // Zero-overhead path for affine awaitables
+                return transform_awaiter<Awaitable>{
+                    std::forward<Awaitable>(a), this};
+            }
+            else
+            {
+                // Trampoline fallback for legacy awaitables
+                return make_affine(std::forward<Awaitable>(a), ex_);
+            }
         }
     };
 
