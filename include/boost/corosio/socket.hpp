@@ -13,7 +13,6 @@
 #include <boost/corosio/platform_reactor.hpp>
 #include <boost/capy/affine.hpp>
 #include <boost/capy/service_provider.hpp>
-#include <boost/capy/executor.hpp>
 
 #include <cassert>
 #include <coroutine>

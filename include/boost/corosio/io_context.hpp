@@ -11,8 +11,8 @@
 #define BOOST_COROSIO_IO_CONTEXT_HPP
 
 #include <boost/corosio/platform_reactor.hpp>
+#include <boost/capy/coro.hpp>
 #include <boost/capy/service_provider.hpp>
-#include <boost/capy/executor.hpp>
 
 #include <concepts>
 #include <utility>
@@ -54,7 +54,7 @@ struct io_context : capy::service_provider
                   : static_cast<platform_reactor*>(&make_service<platform_reactor_single>()))
     {}
 
-    struct executor : capy::executor_base
+    struct executor
     {
         io_context* ctx_;
 
@@ -62,7 +62,9 @@ struct io_context : capy::service_provider
         executor(io_context* ctx) : ctx_(ctx) {}
 
         // For coroutines: return handle for symmetric transfer
-        capy::coro dispatch(capy::coro h) const override { return h; }
+        capy::coro dispatch(capy::coro h) const { return h; }
+
+        capy::coro operator()(capy::coro h) const { return dispatch(h); }
 
         // For callbacks: invoke immediately
         template<class F>
@@ -72,7 +74,7 @@ struct io_context : capy::service_provider
             std::forward<F>(f)();
         }
 
-        void post(capy::executor_work* w) const override { ctx_->reactor_->submit(w); }
+        void post(capy::executor_work* w) const { ctx_->reactor_->submit(w); }
 
         bool operator==(executor const& other) const noexcept { return ctx_ == other.ctx_; }
     };

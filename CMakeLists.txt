@@ -49,8 +49,9 @@ set(BOOST_SRC_DIR ${DEFAULT_BOOST_SRC_DIR} CACHE STRING "Boost source dir to use
 # Boost modules
 #
 #-------------------------------------------------
-# corosio depends on buffers
+# corosio depends on capy and buffers
 set(BOOST_COROSIO_DEPENDENCIES
+    Boost::capy
     Boost::buffers)
 
 foreach (BOOST_COROSIO_DEPENDENCY ${BOOST_COROSIO_DEPENDENCIES})
@@ -61,8 +62,7 @@ endforeach ()
 
 # Complete dependency list
 set(BOOST_INCLUDE_LIBRARIES ${BOOST_COROSIO_INCLUDE_LIBRARIES})
-# Exclude both capy and corosio since this repo provides them
-set(BOOST_EXCLUDE_LIBRARIES capy corosio)
+set(BOOST_EXCLUDE_LIBRARIES corosio)
 
 #-------------------------------------------------
 #
@@ -99,7 +99,7 @@ if (BOOST_COROSIO_IS_ROOT)
         set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${BOOST_SRC_DIR}/tools/cmake/include")
     else ()
         # From Boost Package
-        find_package(Boost REQUIRED COMPONENTS buffers)
+        find_package(Boost REQUIRED COMPONENTS capy buffers)
         foreach (BOOST_INCLUDE_LIBRARY ${BOOST_COROSIO_INCLUDE_LIBRARIES})
             if (NOT TARGET Boost::${BOOST_INCLUDE_LIBRARY})
                 add_library(Boost::${BOOST_INCLUDE_LIBRARY} ALIAS Boost::headers)
@@ -118,40 +118,10 @@ find_package(Threads REQUIRED)
 
 #-------------------------------------------------
 #
-# capy library
-#
-#-------------------------------------------------
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-
-file(GLOB_RECURSE BOOST_CAPY_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/capy/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/capy.hpp")
-file(GLOB_RECURSE BOOST_CAPY_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/*.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/capy/*.cpp")
-
-source_group("" FILES "include/boost/capy.hpp")
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/capy" PREFIX "include" FILES ${BOOST_CAPY_HEADERS})
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src/capy" PREFIX "src" FILES ${BOOST_CAPY_SOURCES})
-
-function(boost_capy_setup_properties target)
-    target_compile_features(${target} PUBLIC cxx_std_20)
-    target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/include")
-    target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}")
-    target_compile_options(${target}
-        PRIVATE
-            $<$<CXX_COMPILER_ID:GNU>:-fcoroutines>)
-endfunction()
-
-add_library(boost_capy ${BOOST_CAPY_HEADERS} ${BOOST_CAPY_SOURCES})
-add_library(Boost::capy ALIAS boost_capy)
-boost_capy_setup_properties(boost_capy)
-
-#-------------------------------------------------
-#
 # corosio library
 #
 #-------------------------------------------------
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 file(GLOB_RECURSE BOOST_COROSIO_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/corosio/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/corosio.hpp")
@@ -169,7 +139,6 @@ function(boost_corosio_setup_properties target)
     target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}")
     target_link_libraries(${target}
         PUBLIC
-            Boost::capy
             ${BOOST_COROSIO_DEPENDENCIES})
     target_compile_options(${target}
         PRIVATE
@@ -203,12 +172,6 @@ if (BOOST_COROSIO_BUILD_TESTS)
                 $<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>)
         add_test(NAME ${name} COMMAND ${name})
     endfunction()
-
-    # capy tests
-    boost_corosio_add_test(test_service_provider test/capy/service_provider.cpp)
-    boost_corosio_add_test(test_async_run test/capy/async_run.cpp)
-    boost_corosio_add_test(test_task test/capy/task.cpp)
-    boost_corosio_add_test(test_run_on test/capy/run_on.cpp)
 
     # corosio tests
     boost_corosio_add_test(test_platform_reactor test/corosio/platform_reactor.cpp)
