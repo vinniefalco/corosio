@@ -22,6 +22,30 @@
 
 namespace capy {
 
+namespace detail {
+
+// Helper base for result storage and return_void/return_value
+template<typename T>
+struct task_return_base
+{
+    std::optional<T> result_;
+
+    void return_value(T value)
+    {
+        result_ = std::move(value);
+    }
+};
+
+template<>
+struct task_return_base<void>
+{
+    void return_void()
+    {
+    }
+};
+
+} // namespace detail
+
 /** A coroutine task type implementing the affine awaitable protocol.
 
     This task type represents an asynchronous operation that can be awaited.
@@ -47,29 +71,9 @@ template<typename T = void>
 struct CAPY_CORO_AWAIT_ELIDABLE
     task
 {
-    // Helper base for result storage and return_void/return_value
-    template<typename U>
-    struct return_base
-    {
-        std::optional<U> result_;
-
-        void return_value(U value)
-        {
-            result_ = std::move(value);
-        }
-    };
-
-    template<>
-    struct return_base<void>
-    {
-        void return_void()
-        {
-        }
-    };
-
     struct promise_type
         : frame_allocating_base
-        , return_base<T>
+        , detail::task_return_base<T>
     {
         any_dispatcher ex_;
         any_dispatcher caller_ex_;
