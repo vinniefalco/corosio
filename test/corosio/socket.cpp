@@ -103,22 +103,6 @@ void test_multiple_reads()
     std::cout << "Test passed!\n";
 }
 
-// Test that the socket's frame allocator is accessible
-void test_frame_allocator_access()
-{
-    std::cout << "\n=== Test 3: Frame allocator accessibility ===\n";
-
-    corosio::io_context ioc;
-    corosio::socket sock(ioc);
-
-    // Access the frame allocator (should not crash)
-    auto& allocator = sock.get_frame_allocator();
-    (void)allocator; // Suppress unused variable warning
-
-    std::cout << "Frame allocator accessible\n";
-    std::cout << "Test passed!\n";
-}
-
 // Test launching multiple coroutines
 void test_multiple_coroutines()
 {
@@ -177,7 +161,6 @@ int main()
 
     test_single_layer_coroutine();
     test_multiple_reads();
-    test_frame_allocator_access();
     test_multiple_coroutines();
     test_always_suspends();
 

@@ -13,7 +13,6 @@
 #include <corosio/platform_reactor.hpp>
 #include <capy/affine.hpp>
 #include <capy/service_provider.hpp>
-#include <capy/detail/recycling_frame_allocator.hpp>
 #include <capy/executor.hpp>
  
 #include <cassert>
@@ -31,15 +30,10 @@ namespace corosio {
     returning awaitable types. It demonstrates the affine awaitable protocol
     where the awaitable receives the caller's executor for completion dispatch.
 
-    The socket owns a frame allocator pool that coroutines using this socket
-    can access via `get_frame_allocator()`. This enables allocation elision
-    for coroutine frames when the socket is passed as a parameter.
-
     @note This is a simulation for benchmarking purposes. Real implementations
     would integrate with OS-level async I/O facilities.
 
     @see async_read_some_t
-    @see has_frame_allocator
 */
 struct socket
 {
@@ -83,11 +77,6 @@ struct socket
         return async_read_some_t(*this);
     }
 
-    capy::detail::recycling_frame_allocator& get_frame_allocator()
-    {
-        return pool_;
-    }
-
 private:
     void do_read_some(
         std::coroutine_handle<>,
@@ -96,7 +85,6 @@ private:
     struct ops_state;
 
     platform_reactor* reactor_;
-    capy::detail::recycling_frame_allocator pool_;
     std::unique_ptr<ops_state, void(*)(ops_state*)> ops_;
 };
 
