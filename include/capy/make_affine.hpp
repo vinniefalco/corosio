@@ -238,7 +238,7 @@ public:
     @code
     struct Dispatcher
     {
-        void operator()(coro h) const;
+        coro operator()(coro h) const;
     };
     @endcode
 
