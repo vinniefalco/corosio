@@ -27,7 +27,7 @@
 
 #include <boost/capy/affine.hpp>
 #include <boost/capy/coro.hpp>
-#include <boost/capy/executor.hpp>
+#include <boost/capy/execution_context.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <atomic>
@@ -41,7 +41,7 @@ namespace detail {
 
 struct overlapped_op
     : OVERLAPPED
-    , capy::executor_work
+    , capy::execution_context::handler
 {
     struct canceller
     {

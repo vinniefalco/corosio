@@ -43,7 +43,7 @@ public:
 
     void shutdown() override;
     void post(capy::coro h) const override;
-    void post(capy::executor_work* w) const override;
+    void post(capy::execution_context::handler* h) const override;
 
     void defer(capy::coro h) const override
     {

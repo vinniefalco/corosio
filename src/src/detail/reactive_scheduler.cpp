@@ -24,7 +24,7 @@ namespace {
 struct thread_info_impl
 {
     scheduler const* key;
-    capy::executor_work_queue private_queue;
+    capy::execution_context::queue private_queue;
     thread_info_impl* next;
 };
 
@@ -55,7 +55,7 @@ struct thread_context_guard
     ~thread_context_guard() noexcept
     {
         // Note: private_queue should be empty here (flushed by work_cleanup)
-        // But executor_work_queue destructor will destroy() any stragglers
+        // But queue destructor will destroy() any stragglers
         context_stack.set(frame_.next);
     }
 
@@ -180,7 +180,7 @@ void
 reactive_scheduler<isUnsafe>::
 post(capy::coro h) const
 {
-    struct coro_work : capy::executor_work
+    struct coro_work : capy::execution_context::handler
     {
         capy::coro h_;
 
@@ -208,7 +208,7 @@ post(capy::coro h) const
 template<bool isUnsafe>
 void
 reactive_scheduler<isUnsafe>::
-post(capy::executor_work* w) const
+post(capy::execution_context::handler* h) const
 {
     // Fast path: if one_thread_ and we're inside run(), use private queue
     if (one_thread_)
@@ -216,7 +216,7 @@ post(capy::executor_work* w) const
         if (auto* info = find_thread_info(this))
         {
             // Push to thread-local private queue (no lock, no alloc!)
-            info->private_queue.push(w);
+            info->private_queue.push(h);
             return;
         }
     }
@@ -225,13 +225,13 @@ post(capy::executor_work* w) const
     if constexpr (!isUnsafe)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        const_cast<capy::executor_work_queue&>(queue_).push(w);
+        const_cast<capy::execution_context::queue&>(queue_).push(h);
         ++const_cast<std::size_t&>(
             const_cast<reactive_scheduler*>(this)->outstanding_work_);
     }
     else
     {
-        const_cast<capy::executor_work_queue&>(queue_).push(w);
+        const_cast<capy::execution_context::queue&>(queue_).push(h);
         ++const_cast<std::size_t&>(
             const_cast<reactive_scheduler*>(this)->outstanding_work_);
     }

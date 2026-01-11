@@ -132,7 +132,7 @@ shutdown()
             if (key == work_key)
             {
                 pending_.fetch_sub(1, std::memory_order_relaxed);
-                auto* work = reinterpret_cast<capy::executor_work*>(overlapped);
+                auto* work = reinterpret_cast<capy::execution_context::handler*>(overlapped);
                 work->destroy();
             }
             else if (key == socket_key)
@@ -150,7 +150,7 @@ void
 win_iocp_scheduler::
 post(capy::coro h) const
 {
-    struct coro_work : capy::executor_work
+    struct coro_work : capy::execution_context::handler
     {
         capy::coro h_;
 
@@ -178,24 +178,24 @@ post(capy::coro h) const
 
 void
 win_iocp_scheduler::
-post(capy::executor_work* w) const
+post(capy::execution_context::handler* h) const
 {
     // Increment pending count before posting
     pending_.fetch_add(1, std::memory_order_relaxed);
 
-    // Post the work item to the IOCP
-    // We use the OVERLAPPED* field to carry the work pointer
+    // Post the handler to the IOCP
+    // We use the OVERLAPPED* field to carry the handler pointer
     BOOL result = ::PostQueuedCompletionStatus(
         iocp_,
         0,
         work_key,
-        reinterpret_cast<LPOVERLAPPED>(w));
+        reinterpret_cast<LPOVERLAPPED>(h));
 
     if (!result)
     {
-        // Posting failed - decrement pending and destroy work
+        // Posting failed - decrement pending and destroy handler
         pending_.fetch_sub(1, std::memory_order_relaxed);
-        w->destroy();
+        h->destroy();
 
         // Claude: do we throw ::GetLastError?
     }
@@ -305,7 +305,7 @@ do_run(unsigned long timeout, std::size_t max_handlers,
             {
                 // Posted work item
                 pending_.fetch_sub(1, std::memory_order_relaxed);
-                (*reinterpret_cast<capy::executor_work*>(overlapped))();
+                (*reinterpret_cast<capy::execution_context::handler*>(overlapped))();
                 ++count;
             }
             else if (key == socket_key)

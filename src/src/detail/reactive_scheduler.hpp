@@ -13,7 +13,6 @@
 #include <boost/corosio/detail/config.hpp>
 #include <boost/corosio/detail/scheduler.hpp>
 #include <boost/capy/execution_context.hpp>
-#include <boost/capy/executor.hpp>
 
 #include <chrono>
 #include <condition_variable>
@@ -46,7 +45,7 @@ public:
     void shutdown() override;
     void init_task();
     void post(capy::coro h) const override;
-    void post(capy::executor_work* w) const override;
+    void post(capy::execution_context::handler* h) const override;
     void defer(capy::coro h) const override;
     void on_work_started() noexcept override;
     void on_work_finished() noexcept override;
@@ -80,12 +79,12 @@ private:
     bool one_thread_;
     mutable std::mutex mutex_;
     mutable std::condition_variable cv_;
-    mutable capy::executor_work_queue queue_;
+    mutable capy::execution_context::queue queue_;
     std::size_t outstanding_work_ = 0;
     bool stopped_ = false;
     bool shutdown_ = false;
     reactor* task_ = nullptr;
-    struct task_op : capy::executor_work
+    struct task_op : capy::execution_context::handler
     {
         void operator()() override {}
         void destroy() override {}

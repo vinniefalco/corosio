@@ -22,9 +22,11 @@
 #include <boost/system/error_code.hpp>
 
 #include <cassert>
+#include <concepts>
 #include <coroutine>
 #include <cstddef>
 #include <stop_token>
+#include <type_traits>
 
 namespace boost {
 namespace corosio {
@@ -225,7 +227,9 @@ public:
 
         @param ex The executor whose context will own the socket.
     */
-    template<capy::executor Executor>
+    template<class Executor>
+        requires (!std::same_as<std::remove_cvref_t<Executor>, socket>) &&
+                 capy::executor<Executor>
     explicit socket(Executor const& ex)
         : socket(ex.context())
     {
