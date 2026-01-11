@@ -35,6 +35,7 @@ if (BOOST_COROSIO_IS_ROOT)
 endif ()
 option(BOOST_COROSIO_BUILD_TESTS "Build boost::corosio tests" ${BUILD_TESTING})
 option(BOOST_COROSIO_BUILD_BENCH "Build boost::corosio benchmarks" ${BOOST_COROSIO_IS_ROOT})
+option(BOOST_COROSIO_BUILD_EXAMPLES "Build boost::corosio examples" ${BOOST_COROSIO_IS_ROOT})
 option(BOOST_COROSIO_BUILD_DOCS "Build boost::corosio documentation" OFF)
 option(BOOST_COROSIO_MRDOCS_BUILD "Building for MrDocs documentation generation" OFF)
 
@@ -168,4 +169,13 @@ boost_corosio_setup_properties(boost_corosio)
 #-------------------------------------------------
 if (BOOST_COROSIO_BUILD_TESTS)
     add_subdirectory(test)
+endif ()
+
+#-------------------------------------------------
+#
+# Examples
+#
+#-------------------------------------------------
+if (BOOST_COROSIO_BUILD_EXAMPLES)
+    add_subdirectory(example)
 endif ()
