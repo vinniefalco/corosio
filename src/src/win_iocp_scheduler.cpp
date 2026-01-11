@@ -143,7 +143,7 @@ post(capy::executor_work* w) const
         // If posting fails, destroy the work item
         w->destroy();
 
-        // Claude: what should we do here?
+        // Claude: do we throw ::GetLastError?
     }
 }
 
@@ -183,8 +183,10 @@ restart()
 
 std::size_t
 win_iocp_scheduler::
-do_run(unsigned long timeout, std::size_t max_handlers)
+do_run(unsigned long timeout, std::size_t max_handlers,
+    boost::system::error_code& ec)
 {
+    ec.clear();
     std::size_t count = 0;
     DWORD bytes;
     ULONG_PTR key;
@@ -201,8 +203,16 @@ do_run(unsigned long timeout, std::size_t max_handlers)
 
         if (!result)
         {
-            // Timeout or error
-            break;
+            DWORD err = ::GetLastError();
+            if (err == WAIT_TIMEOUT)
+                break; // Timeout is not an error
+            if (overlapped == nullptr)
+            {
+                // Real error
+                ec.assign(static_cast<int>(err), boost::system::system_category());
+                break;
+            }
+            // Completion with error - still process it
         }
 
         if (key == shutdown_key)
@@ -232,13 +242,71 @@ do_run(unsigned long timeout, std::size_t max_handlers)
 
 std::size_t
 win_iocp_scheduler::
-run()
+do_wait(unsigned long timeout, boost::system::error_code& ec)
+{
+    ec.clear();
+    DWORD bytes;
+    ULONG_PTR key;
+    LPOVERLAPPED overlapped;
+
+    if (stopped())
+        return 0;
+
+    BOOL result = ::GetQueuedCompletionStatus(
+        iocp_,
+        &bytes,
+        &key,
+        &overlapped,
+        timeout);
+
+    if (!result)
+    {
+        DWORD err = ::GetLastError();
+        if (err == WAIT_TIMEOUT)
+            return 0; // Timeout is not an error
+        if (overlapped == nullptr)
+        {
+            ec.assign(static_cast<int>(err), boost::system::system_category());
+            return 0;
+        }
+    }
+
+    if (key == shutdown_key)
+    {
+        // Re-post for other threads
+        ::PostQueuedCompletionStatus(
+            iocp_,
+            0,
+            shutdown_key,
+            nullptr);
+        return 0;
+    }
+
+    // Put the completion back for later execution
+    if (key == work_key && overlapped != nullptr)
+    {
+        ::PostQueuedCompletionStatus(
+            iocp_,
+            bytes,
+            key,
+            overlapped);
+        return 1;
+    }
+
+    return 0;
+}
+
+std::size_t
+win_iocp_scheduler::
+run(boost::system::error_code& ec)
 {
     std::size_t total = 0;
 
     while (!stopped())
     {
-        std::size_t n = do_run(INFINITE, static_cast<std::size_t>(-1));
+        std::size_t n = do_run(INFINITE, static_cast<std::size_t>(-1), ec);
+        if (ec)
+            break;
         if (n == 0)
             break;
         total += n;
@@ -249,9 +317,27 @@ run()
 
 std::size_t
 win_iocp_scheduler::
-run_one()
+run_one(boost::system::error_code& ec)
 {
-    return do_run(INFINITE, 1);
+    return do_run(INFINITE, 1, ec);
+}
+
+std::size_t
+win_iocp_scheduler::
+run_one(long usec, boost::system::error_code& ec)
+{
+    // Convert microseconds to milliseconds (round up)
+    unsigned long timeout_ms = static_cast<unsigned long>((usec + 999) / 1000);
+    return do_run(timeout_ms, 1, ec);
+}
+
+std::size_t
+win_iocp_scheduler::
+wait_one(long usec, boost::system::error_code& ec)
+{
+    // Convert microseconds to milliseconds (round up)
+    unsigned long timeout_ms = static_cast<unsigned long>((usec + 999) / 1000);
+    return do_wait(timeout_ms, ec);
 }
 
 std::size_t
@@ -266,6 +352,7 @@ std::size_t
 win_iocp_scheduler::
 run_until(std::chrono::steady_clock::time_point abs_time)
 {
+    boost::system::error_code ec;
     std::size_t total = 0;
 
     while (!stopped())
@@ -276,14 +363,14 @@ run_until(std::chrono::steady_clock::time_point abs_time)
 
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
             abs_time - now);
-        DWORD timeout = static_cast<DWORD>(remaining.count());
+        unsigned long timeout = static_cast<unsigned long>(remaining.count());
         if (timeout == 0)
             timeout = 1; // Minimum 1ms to avoid pure poll
 
-        std::size_t n = do_run(timeout, static_cast<std::size_t>(-1));
+        std::size_t n = do_run(timeout, static_cast<std::size_t>(-1), ec);
         total += n;
 
-        if (n == 0)
+        if (n == 0 || ec)
             break;
     }
 
@@ -292,16 +379,16 @@ run_until(std::chrono::steady_clock::time_point abs_time)
 
 std::size_t
 win_iocp_scheduler::
-poll()
+poll(boost::system::error_code& ec)
 {
-    return do_run(0, static_cast<std::size_t>(-1));
+    return do_run(0, static_cast<std::size_t>(-1), ec);
 }
 
 std::size_t
 win_iocp_scheduler::
-poll_one()
+poll_one(boost::system::error_code& ec)
 {
-    return do_run(0, 1);
+    return do_run(0, 1, ec);
 }
 
 } // namespace corosio

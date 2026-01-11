@@ -15,6 +15,8 @@
 #include <boost/capy/coro.hpp>
 #include <boost/capy/executor.hpp>
 #include <boost/capy/execution_context.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/system/system_error.hpp>
 
 #include <chrono>
 #include <concepts>
@@ -26,6 +28,20 @@ namespace corosio {
 
 namespace detail {
 
+inline void
+throw_error(boost::system::error_code const& ec)
+{
+    if (ec)
+        throw boost::system::system_error(ec);
+}
+
+inline void
+throw_error(boost::system::error_code const& ec, char const* what)
+{
+    if (ec)
+        throw boost::system::system_error(ec, what);
+}
+
 struct scheduler
 {
     virtual ~scheduler() = default;
@@ -35,12 +51,14 @@ struct scheduler
     virtual void stop() = 0;
     virtual bool stopped() const noexcept = 0;
     virtual void restart() = 0;
-    virtual std::size_t run() = 0;
-    virtual std::size_t run_one() = 0;
+    virtual std::size_t run(boost::system::error_code& ec) = 0;
+    virtual std::size_t run_one(boost::system::error_code& ec) = 0;
+    virtual std::size_t run_one(long usec, boost::system::error_code& ec) = 0;
+    virtual std::size_t wait_one(long usec, boost::system::error_code& ec) = 0;
     virtual std::size_t run_for(std::chrono::steady_clock::duration) = 0;
     virtual std::size_t run_until(std::chrono::steady_clock::time_point) = 0;
-    virtual std::size_t poll() = 0;
-    virtual std::size_t poll_one() = 0;
+    virtual std::size_t poll(boost::system::error_code& ec) = 0;
+    virtual std::size_t poll_one(boost::system::error_code& ec) = 0;
 };
 
 } // namespace detail
@@ -147,11 +165,16 @@ public:
         been executed or stop() is called.
 
         @return The number of handlers executed.
+
+        @throws boost::system::system_error on failure.
     */
     std::size_t
     run()
     {
-        return sched_.run();
+        boost::system::error_code ec;
+        std::size_t n = sched_.run(ec);
+        detail::throw_error(ec);
+        return n;
     }
 
     /** Process at most one pending work item.
@@ -160,11 +183,57 @@ public:
         executed or stop() is called.
 
         @return The number of handlers executed (0 or 1).
+
+        @throws boost::system::system_error on failure.
     */
     std::size_t
     run_one()
     {
-        return sched_.run_one();
+        boost::system::error_code ec;
+        std::size_t n = sched_.run_one(ec);
+        detail::throw_error(ec);
+        return n;
+    }
+
+    /** Process at most one pending work item with timeout.
+
+        This function blocks until one work item has been
+        executed, the timeout expires, or stop() is called.
+
+        @param usec Timeout in microseconds.
+
+        @return The number of handlers executed (0 or 1).
+
+        @throws boost::system::system_error on failure.
+    */
+    std::size_t
+    run_one(long usec)
+    {
+        boost::system::error_code ec;
+        std::size_t n = sched_.run_one(usec, ec);
+        detail::throw_error(ec);
+        return n;
+    }
+
+    /** Wait for at most one completion without executing.
+
+        This function blocks until a completion is available,
+        the timeout expires, or stop() is called. The completion
+        is not executed.
+
+        @param usec Timeout in microseconds.
+
+        @return The number of completions available (0 or 1).
+
+        @throws boost::system::system_error on failure.
+    */
+    std::size_t
+    wait_one(long usec)
+    {
+        boost::system::error_code ec;
+        std::size_t n = sched_.wait_one(usec, ec);
+        detail::throw_error(ec);
+        return n;
     }
 
     /** Process work items for the specified duration.
@@ -207,11 +276,16 @@ public:
         to run without blocking for more work.
 
         @return The number of handlers executed.
+
+        @throws boost::system::system_error on failure.
     */
     std::size_t
     poll()
     {
-        return sched_.poll();
+        boost::system::error_code ec;
+        std::size_t n = sched_.poll(ec);
+        detail::throw_error(ec);
+        return n;
     }
 
     /** Process at most one ready work item without blocking.
@@ -220,11 +294,16 @@ public:
         ready to run without blocking for more work.
 
         @return The number of handlers executed (0 or 1).
+
+        @throws boost::system::system_error on failure.
     */
     std::size_t
     poll_one()
     {
-        return sched_.poll_one();
+        boost::system::error_code ec;
+        std::size_t n = sched_.poll_one(ec);
+        detail::throw_error(ec);
+        return n;
     }
 
 private:

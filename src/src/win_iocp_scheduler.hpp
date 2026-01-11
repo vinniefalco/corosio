@@ -134,21 +134,49 @@ public:
         Dequeues all available completions from the IOCP and executes
         them. Returns when stopped or no more work is available.
 
+        @param ec Set to indicate any error.
+
         @return The number of handlers executed.
 
         @par Thread Safety
         This function is thread-safe. Multiple threads may call
         run() concurrently.
     */
-    std::size_t run() override;
+    std::size_t run(boost::system::error_code& ec) override;
 
     /** Processes at most one pending work item.
 
         Blocks until one work item is executed or stop() is called.
 
+        @param ec Set to indicate any error.
+
         @return The number of handlers executed (0 or 1).
     */
-    std::size_t run_one() override;
+    std::size_t run_one(boost::system::error_code& ec) override;
+
+    /** Processes at most one pending work item with timeout.
+
+        Blocks until one work item is executed, the timeout expires,
+        or stop() is called.
+
+        @param usec Timeout in microseconds.
+        @param ec Set to indicate any error.
+
+        @return The number of handlers executed (0 or 1).
+    */
+    std::size_t run_one(long usec, boost::system::error_code& ec) override;
+
+    /** Wait for at most one completion without executing.
+
+        Blocks until a completion is available, the timeout expires,
+        or stop() is called. The completion is not executed.
+
+        @param usec Timeout in microseconds.
+        @param ec Set to indicate any error.
+
+        @return The number of completions available (0 or 1).
+    */
+    std::size_t wait_one(long usec, boost::system::error_code& ec) override;
 
     /** Processes work items for the specified duration.
 
@@ -168,15 +196,19 @@ public:
 
     /** Processes all ready work items without blocking.
 
+        @param ec Set to indicate any error.
+
         @return The number of handlers executed.
     */
-    std::size_t poll() override;
+    std::size_t poll(boost::system::error_code& ec) override;
 
     /** Processes at most one ready work item without blocking.
 
+        @param ec Set to indicate any error.
+
         @return The number of handlers executed (0 or 1).
     */
-    std::size_t poll_one() override;
+    std::size_t poll_one(boost::system::error_code& ec) override;
 
     /** Returns the native IOCP handle.
 
@@ -185,7 +217,9 @@ public:
     void* native_handle() const noexcept { return iocp_; }
 
 private:
-    std::size_t do_run(unsigned long timeout, std::size_t max_handlers);
+    std::size_t do_run(unsigned long timeout, std::size_t max_handlers,
+        boost::system::error_code& ec);
+    std::size_t do_wait(unsigned long timeout, boost::system::error_code& ec);
 
     void* iocp_;
     std::thread::id thread_id_;
