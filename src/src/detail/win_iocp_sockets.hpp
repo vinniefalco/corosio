@@ -14,34 +14,17 @@
 
 #ifdef _WIN32
 
-#include "src/detail/win_wsa_init.hpp"
-
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-
-#include <WinSock2.h>
-#include <Ws2tcpip.h>
-#include <Windows.h>
-#include <MSWSock.h>
-
 #include <boost/capy/affine.hpp>
-#include <boost/capy/coro.hpp>
 #include <boost/capy/execution_context.hpp>
-#include <boost/capy/executor.hpp>
 #include <boost/capy/intrusive_list.hpp>
 
-#include <boost/system/error_code.hpp>
+#include "src/detail/win_overlapped_op.hpp"
+#include "src/detail/win_wsa_init.hpp"
 
-#include <atomic>
-#include <cstddef>
+#include <Ws2tcpip.h>
+#include <MSWSock.h>
+
 #include <mutex>
-#include <optional>
-#include <stop_token>
 
 namespace boost {
 namespace corosio {
@@ -49,100 +32,6 @@ namespace detail {
 
 class win_iocp_sockets;
 class socket_impl;
-
-//------------------------------------------------------------------------------
-
-/** Base class for all IOCP overlapped operations.
-
-    This class inherits from both OVERLAPPED (for Windows I/O) and
-    executor_work (for coroutine dispatch). It provides common
-    functionality for all async socket operations.
-
-    @note The OVERLAPPED must be first in memory layout for proper
-    casting when receiving completions from IOCP.
-*/
-struct overlapped_op
-    : OVERLAPPED
-    , capy::executor_work
-{
-    /** Small invocable for stop_callback - avoids std::function overhead. */
-    struct canceller
-    {
-        overlapped_op* op;
-        void operator()() const noexcept { op->request_cancel(); }
-    };
-
-    capy::coro h;
-    capy::any_dispatcher d;
-    system::error_code* ec_out = nullptr;
-    std::size_t* bytes_out = nullptr;
-    DWORD error = 0;
-    DWORD bytes_transferred = 0;
-    std::atomic<bool> cancelled{false};
-    std::optional<std::stop_callback<canceller>> stop_cb;
-
-    /** Initialize the OVERLAPPED structure. */
-    void reset() noexcept
-    {
-        Internal = 0;
-        InternalHigh = 0;
-        Offset = 0;
-        OffsetHigh = 0;
-        hEvent = nullptr;
-        error = 0;
-        bytes_transferred = 0;
-        cancelled.store(false, std::memory_order_relaxed);
-    }
-
-    /** Resume the coroutine via its dispatcher. */
-    void operator()() override
-    {
-        stop_cb.reset();
-
-        if (ec_out)
-        {
-            if (cancelled.load(std::memory_order_acquire))
-                *ec_out = make_error_code(system::errc::operation_canceled);
-            else if (error != 0)
-                *ec_out = system::error_code(
-                    static_cast<int>(error), system::system_category());
-        }
-
-        if (bytes_out)
-            *bytes_out = static_cast<std::size_t>(bytes_transferred);
-
-        d(h).resume();
-    }
-
-    /** Destroy - no-op since we're owned by socket_impl. */
-    void destroy() override
-    {
-        stop_cb.reset();
-    }
-
-    /** Request cancellation of this operation. */
-    void request_cancel() noexcept
-    {
-        cancelled.store(true, std::memory_order_release);
-    }
-
-    /** Start tracking with a stop token. */
-    void start(std::stop_token token)
-    {
-        cancelled.store(false, std::memory_order_release);
-        stop_cb.reset();
-
-        if (token.stop_possible())
-            stop_cb.emplace(token, canceller{this});
-    }
-
-    /** Complete the operation with results from IOCP. */
-    void complete(DWORD bytes, DWORD err) noexcept
-    {
-        bytes_transferred = bytes;
-        error = err;
-    }
-};
 
 //------------------------------------------------------------------------------
 

@@ -8,7 +8,7 @@
 //
 
 #include "src/detail/win_iocp_scheduler.hpp"
-#include "src/detail/win_iocp_sockets.hpp"
+#include "src/detail/win_overlapped_op.hpp"
 
 #include <boost/corosio/detail/except.hpp>
 #include <boost/capy/thread_local_ptr.hpp>
