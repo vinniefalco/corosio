@@ -196,14 +196,6 @@ post(capy::execution_context::handler* h) const
 template<bool isUnsafe>
 void
 reactive_scheduler<isUnsafe>::
-defer(capy::coro h) const
-{
-    post(h);
-}
-
-template<bool isUnsafe>
-void
-reactive_scheduler<isUnsafe>::
 on_work_started() noexcept
 {
     if constexpr (!isUnsafe)

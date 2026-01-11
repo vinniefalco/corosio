@@ -43,7 +43,6 @@ public:
     void shutdown() override;
     void post(capy::coro h) const override;
     void post(capy::execution_context::handler* h) const override;
-    void defer(capy::coro h) const override;
     void on_work_started() noexcept override;
     void on_work_finished() noexcept override;
     bool running_in_this_thread() const noexcept override;

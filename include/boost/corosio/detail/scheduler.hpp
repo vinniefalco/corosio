@@ -26,7 +26,6 @@ struct scheduler
     virtual ~scheduler() = default;
     virtual void post(capy::coro) const = 0;
     virtual void post(capy::execution_context::handler*) const = 0;
-    virtual void defer(capy::coro) const = 0;
     virtual void on_work_started() noexcept = 0;
     virtual void on_work_finished() noexcept = 0;
     virtual bool running_in_this_thread() const noexcept = 0;

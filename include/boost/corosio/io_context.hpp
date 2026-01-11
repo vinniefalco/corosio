@@ -384,7 +384,7 @@ public:
     void
     defer(capy::coro h) const
     {
-        ctx_->sched_.defer(h);
+        ctx_->sched_.post(h);
     }
 
     /** Compare two executors for equality.
