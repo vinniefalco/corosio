@@ -118,9 +118,11 @@ public:
     /** Process all pending work items.
 
         This function blocks until all pending work items have been
-        executed or `stop()` is called.
+        executed or `stop()` is called. The io_context is stopped
+        when there is no more outstanding work.
 
-        @throws system::system_error on failure.
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @return The number of handlers executed.
     */
@@ -133,9 +135,11 @@ public:
     /** Process at most one pending work item.
 
         This function blocks until one work item has been executed
-        or `stop()` is called.
+        or `stop()` is called. The io_context is stopped when there
+        is no more outstanding work.
 
-        @throws system::system_error on failure.
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @return The number of handlers executed (0 or 1).
     */
@@ -148,7 +152,11 @@ public:
     /** Process work items for the specified duration.
 
         This function blocks until work items have been executed for
-        the specified duration, or `stop()` is called.
+        the specified duration, or `stop()` is called. The io_context
+        is stopped when there is no more outstanding work.
+
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @param rel_time The duration for which to process work.
 
@@ -164,7 +172,11 @@ public:
     /** Process work items until the specified time.
 
         This function blocks until the specified time is reached
-        or `stop()` is called.
+        or `stop()` is called. The io_context is stopped when there
+        is no more outstanding work.
+
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @param abs_time The time point until which to process work.
 
@@ -185,6 +197,10 @@ public:
 
         This function blocks until one work item has been executed,
         the specified duration has elapsed, or `stop()` is called.
+        The io_context is stopped when there is no more outstanding work.
+
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @param rel_time The duration for which the call may block.
 
@@ -201,6 +217,10 @@ public:
 
         This function blocks until one work item has been executed,
         the specified time is reached, or `stop()` is called.
+        The io_context is stopped when there is no more outstanding work.
+
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @param abs_time The time point until which the call may block.
 
@@ -221,8 +241,7 @@ public:
                 static_cast<long>(std::chrono::duration_cast<
                     std::chrono::microseconds>(rel_time).count()));
 
-            // Exit if: handler ran, stopped, or no outstanding work
-            if (s || stopped() || !sched_.has_outstanding_work())
+            if (s || stopped())
                 return s;
 
             now = Clock::now();
@@ -233,9 +252,11 @@ public:
     /** Process all ready work items without blocking.
 
         This function executes all work items that are ready to run
-        without blocking for more work.
+        without blocking for more work. The io_context is stopped
+        when there is no more outstanding work.
 
-        @throws system::system_error on failure.
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @return The number of handlers executed.
     */
@@ -248,9 +269,11 @@ public:
     /** Process at most one ready work item without blocking.
 
         This function executes at most one work item that is ready
-        to run without blocking for more work.
+        to run without blocking for more work. The io_context is
+        stopped when there is no more outstanding work.
 
-        @throws system::system_error on failure.
+        @note The io_context must be restarted with `restart()` before
+            calling this function again after it returns.
 
         @return The number of handlers executed (0 or 1).
     */

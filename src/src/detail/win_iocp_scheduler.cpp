@@ -251,13 +251,6 @@ running_in_this_thread() const noexcept
     return false;
 }
 
-bool
-win_iocp_scheduler::
-has_outstanding_work() const noexcept
-{
-    return ::InterlockedExchangeAdd(&outstanding_work_, 0) > 0;
-}
-
 void
 win_iocp_scheduler::
 work_started() const noexcept
@@ -347,10 +340,11 @@ std::size_t
 win_iocp_scheduler::
 wait_one(long usec)
 {
-    // Unlike run()/run_one(), don't stop when no work - just return.
-    // run_for/run_until should not stop the context.
     if (::InterlockedExchangeAdd(&outstanding_work_, 0) == 0)
+    {
+        stop();
         return 0;
+    }
 
     thread_context_guard ctx(this);
     unsigned long timeout_ms = usec < 0 ? INFINITE :

@@ -262,9 +262,13 @@ struct io_context_test
         auto ex = ioc.get_executor();
         int counter = 0;
 
-        // run_one_for with no work - returns immediately (no outstanding work)
+        // run_one_for with no work - returns immediately and stops context
         std::size_t n = ioc.run_one_for(std::chrono::milliseconds(10));
         BOOST_TEST(n == 0);
+        BOOST_TEST(ioc.stopped());
+
+        // Must restart before next use
+        ioc.restart();
 
         // With work posted
         ex.post(make_coro(counter));
@@ -281,10 +285,14 @@ struct io_context_test
         auto ex = ioc.get_executor();
         int counter = 0;
 
-        // run_one_until with no work - should return after deadline
+        // run_one_until with no work - returns immediately and stops context
         auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10);
         std::size_t n = ioc.run_one_until(deadline);
         BOOST_TEST(n == 0);
+        BOOST_TEST(ioc.stopped());
+
+        // Must restart before next use
+        ioc.restart();
 
         // Post work and run_one_until
         ex.post(make_coro(counter));
@@ -302,14 +310,18 @@ struct io_context_test
         auto ex = ioc.get_executor();
         int counter = 0;
 
-        // run_for with no work - should return immediately
+        // run_for with no work - returns immediately and stops context
         auto start = std::chrono::steady_clock::now();
         std::size_t n = ioc.run_for(std::chrono::milliseconds(20));
         auto elapsed = std::chrono::steady_clock::now() - start;
 
         BOOST_TEST(n == 0);
+        BOOST_TEST(ioc.stopped());
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
         BOOST_TEST(ms < 15); // Should return immediately when no work
+
+        // Must restart before next use
+        ioc.restart();
 
         // run_for with work
         ex.post(make_coro(counter));

@@ -58,7 +58,6 @@ public:
     void on_work_started() noexcept override;
     void on_work_finished() noexcept override;
     bool running_in_this_thread() const noexcept override;
-    bool has_outstanding_work() const noexcept override;
     void stop() override;
     bool stopped() const noexcept override;
     void restart() override;
