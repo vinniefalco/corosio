@@ -27,7 +27,7 @@ constexpr ULONG_PTR socket_key = 2;
 } // namespace
 
 //------------------------------------------------------------------------------
-// socket_impl
+// win_socket_impl
 
 //------------------------------------------------------------------------------
 // accept_op
@@ -86,10 +86,10 @@ operator()()
 }
 
 //------------------------------------------------------------------------------
-// socket_impl
+// win_socket_impl
 
 void
-socket_impl::
+win_socket_impl::
 cancel() noexcept
 {
     if (socket_ != INVALID_SOCKET)
@@ -108,7 +108,7 @@ cancel() noexcept
 }
 
 void
-socket_impl::
+win_socket_impl::
 close_socket() noexcept
 {
     if (socket_ != INVALID_SOCKET)
@@ -119,11 +119,222 @@ close_socket() noexcept
 }
 
 void
-socket_impl::
+win_socket_impl::
 release()
 {
     close_socket();
     svc_.destroy_impl(*this);
+}
+
+void
+win_socket_impl::
+connect(
+    capy::coro h,
+    capy::any_dispatcher d,
+    tcp::endpoint endpoint,
+    std::stop_token token,
+    system::error_code* ec)
+{
+    auto& op = conn_;
+    op.reset();
+    op.h = h;
+    op.d = d;
+    op.ec_out = ec;
+    op.start(token);
+
+    // ConnectEx requires the socket to be bound first
+    sockaddr_in bind_addr{};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
+    bind_addr.sin_port = 0;
+
+    if (::bind(socket_,
+        reinterpret_cast<sockaddr*>(&bind_addr),
+        sizeof(bind_addr)) == SOCKET_ERROR)
+    {
+        op.error = ::WSAGetLastError();
+        svc_.post(&op);
+        return;
+    }
+
+    // Get the ConnectEx function pointer
+    auto connect_ex = svc_.connect_ex();
+    if (!connect_ex)
+    {
+        op.error = WSAEOPNOTSUPP;
+        svc_.post(&op);
+        return;
+    }
+
+    // Prepare the target address
+    sockaddr_in addr = endpoint.to_sockaddr();
+
+    // Notify scheduler of pending I/O
+    svc_.work_started();
+
+    // Start the async connect
+    BOOL result = connect_ex(
+        socket_,
+        reinterpret_cast<sockaddr*>(&addr),
+        sizeof(addr),
+        nullptr,  // No send buffer
+        0,        // No send buffer size
+        nullptr,  // No bytes sent out param
+        &op);
+
+    if (!result)
+    {
+        DWORD err = ::WSAGetLastError();
+        if (err != ERROR_IO_PENDING)
+        {
+            // Immediate failure - no IOCP completion will occur
+            svc_.work_finished();
+            op.error = err;
+            svc_.post(&op);
+            return;
+        }
+        // ERROR_IO_PENDING means the operation is in progress
+    }
+    else
+    {
+        // Synchronous completion with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
+        svc_.work_finished();
+        op.error = 0;
+        svc_.post(&op);
+    }
+}
+
+void
+win_socket_impl::
+read_some(
+    capy::coro h,
+    capy::any_dispatcher d,
+    buffers_param<true>& param,
+    std::stop_token token,
+    system::error_code* ec,
+    std::size_t* bytes_out)
+{
+    auto& op = rd_;
+    op.reset();
+    op.h = h;
+    op.d = d;
+    op.ec_out = ec;
+    op.bytes_out = bytes_out;
+    op.start(token);
+
+    // Fill WSABUF array from the buffer sequence
+    buffers::mutable_buffer bufs[read_op::max_buffers];
+    op.wsabuf_count = static_cast<DWORD>(
+        param.copy_to(bufs, read_op::max_buffers));
+
+    for (DWORD i = 0; i < op.wsabuf_count; ++i)
+    {
+        op.wsabufs[i].buf = static_cast<char*>(bufs[i].data());
+        op.wsabufs[i].len = static_cast<ULONG>(bufs[i].size());
+    }
+
+    op.flags = 0;
+
+    // Notify scheduler of pending I/O
+    svc_.work_started();
+
+    // Start the async read
+    int result = ::WSARecv(
+        socket_,
+        op.wsabufs,
+        op.wsabuf_count,
+        nullptr,      // Bytes received (not used with overlapped)
+        &op.flags,
+        &op,
+        nullptr);     // No completion routine
+
+    if (result == SOCKET_ERROR)
+    {
+        DWORD err = ::WSAGetLastError();
+        if (err != WSA_IO_PENDING)
+        {
+            // Immediate failure - no IOCP completion will occur
+            svc_.work_finished();
+            op.error = err;
+            svc_.post(&op);
+            return;
+        }
+        // WSA_IO_PENDING means the operation is in progress
+    }
+    else
+    {
+        // Synchronous completion with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
+        svc_.work_finished();
+        op.bytes_transferred = static_cast<DWORD>(op.InternalHigh);
+        op.error = 0;
+        svc_.post(&op);
+    }
+}
+
+void
+win_socket_impl::
+write_some(
+    capy::coro h,
+    capy::any_dispatcher d,
+    buffers_param<false>& param,
+    std::stop_token token,
+    system::error_code* ec,
+    std::size_t* bytes_out)
+{
+    auto& op = wr_;
+    op.reset();
+    op.h = h;
+    op.d = d;
+    op.ec_out = ec;
+    op.bytes_out = bytes_out;
+    op.start(token);
+
+    // Fill WSABUF array from the buffer sequence
+    buffers::const_buffer bufs[write_op::max_buffers];
+    op.wsabuf_count = static_cast<DWORD>(
+        param.copy_to(bufs, write_op::max_buffers));
+
+    for (DWORD i = 0; i < op.wsabuf_count; ++i)
+    {
+        op.wsabufs[i].buf = const_cast<char*>(
+            static_cast<char const*>(bufs[i].data()));
+        op.wsabufs[i].len = static_cast<ULONG>(bufs[i].size());
+    }
+
+    // Notify scheduler of pending I/O
+    svc_.work_started();
+
+    // Start the async write
+    int result = ::WSASend(
+        socket_,
+        op.wsabufs,
+        op.wsabuf_count,
+        nullptr,      // Bytes sent (not used with overlapped)
+        0,            // Flags
+        &op,
+        nullptr);     // No completion routine
+
+    if (result == SOCKET_ERROR)
+    {
+        DWORD err = ::WSAGetLastError();
+        if (err != WSA_IO_PENDING)
+        {
+            // Immediate failure - no IOCP completion will occur
+            svc_.work_finished();
+            op.error = err;
+            svc_.post(&op);
+            return;
+        }
+        // WSA_IO_PENDING means the operation is in progress
+    }
+    else
+    {
+        // Synchronous completion with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
+        svc_.work_finished();
+        op.bytes_transferred = static_cast<DWORD>(op.InternalHigh);
+        op.error = 0;
+        svc_.post(&op);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -132,7 +343,8 @@ release()
 win_iocp_sockets::
 win_iocp_sockets(
     capy::execution_context& ctx)
-    : iocp_(ctx.use_service<win_iocp_scheduler>().native_handle())
+    : sched_(ctx.use_service<win_iocp_scheduler>())
+    , iocp_(sched_.native_handle())
 {
     load_extension_functions();
 }
@@ -157,11 +369,11 @@ shutdown()
     }
 }
 
-socket_impl&
+win_socket_impl&
 win_iocp_sockets::
 create_impl()
 {
-    auto* impl = new socket_impl(*this);
+    auto* impl = new win_socket_impl(*this);
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -173,7 +385,7 @@ create_impl()
 
 void
 win_iocp_sockets::
-destroy_impl(socket_impl& impl)
+destroy_impl(win_socket_impl& impl)
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -185,7 +397,7 @@ destroy_impl(socket_impl& impl)
 
 system::error_code
 win_iocp_sockets::
-open_socket(socket_impl& impl)
+open_socket(win_socket_impl& impl)
 {
     // Close existing socket if any
     impl.close_socket();
@@ -277,6 +489,27 @@ load_extension_functions()
         nullptr);
 
     ::closesocket(sock);
+}
+
+void
+win_iocp_sockets::
+post(overlapped_op* op)
+{
+    sched_.post(op);
+}
+
+void
+win_iocp_sockets::
+work_started() noexcept
+{
+    sched_.work_started();
+}
+
+void
+win_iocp_sockets::
+work_finished() noexcept
+{
+    sched_.work_finished();
 }
 
 } // namespace detail

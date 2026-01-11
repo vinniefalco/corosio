@@ -14,6 +14,8 @@
 
 #ifdef _WIN32
 
+#include <boost/corosio/detail/socket_impl.hpp>
+
 #include <boost/capy/affine.hpp>
 #include <boost/capy/execution_context.hpp>
 #include <boost/capy/intrusive_list.hpp>
@@ -30,8 +32,9 @@ namespace boost {
 namespace corosio {
 namespace detail {
 
+class win_iocp_scheduler;
 class win_iocp_sockets;
-class socket_impl;
+class win_socket_impl;
 
 //------------------------------------------------------------------------------
 
@@ -61,7 +64,7 @@ struct write_op : overlapped_op
 struct accept_op : overlapped_op
 {
     SOCKET accepted_socket = INVALID_SOCKET;
-    socket_impl* peer_impl = nullptr;  // New impl for accepted socket
+    win_socket_impl* peer_impl = nullptr;  // New impl for accepted socket
     void* peer_socket = nullptr;  // Pointer to peer socket object
     void* sockets_svc = nullptr;  // Pointer to win_iocp_sockets service
     SOCKET listen_socket = INVALID_SOCKET;  // For SO_UPDATE_ACCEPT_CONTEXT
@@ -69,7 +72,7 @@ struct accept_op : overlapped_op
     char addr_buf[2 * (sizeof(sockaddr_in6) + 16)];
 
     // Transfer callback - set by acceptor
-    void (*transfer_fn)(void* peer, void* svc, socket_impl* impl, SOCKET sock) = nullptr;
+    void (*transfer_fn)(void* peer, void* svc, win_socket_impl* impl, SOCKET sock) = nullptr;
 
     /** Resume the coroutine, transferring the accepted socket. */
     void operator()() override;
@@ -85,46 +88,53 @@ struct accept_op : overlapped_op
 
     @note Internal implementation detail. Users interact with socket class.
 */
-class socket_impl
-    : public capy::intrusive_list<socket_impl>::node
+class win_socket_impl
+    : public socket_impl
+    , public capy::intrusive_list<win_socket_impl>::node
 {
     friend class win_iocp_sockets;
 
 public:
-    /** Construct a socket implementation.
-
-        @param svc Reference to the owning sockets service.
-    */
-    explicit socket_impl(win_iocp_sockets& svc) noexcept
+    explicit win_socket_impl(
+        win_iocp_sockets& svc) noexcept
         : svc_(svc)
     {
     }
 
-    /** Return the native socket handle. */
     SOCKET native_handle() const noexcept { return socket_; }
-
-    /** Check if the socket has a valid handle. */
     bool is_open() const noexcept { return socket_ != INVALID_SOCKET; }
-
-    /** Cancel all pending operations on this socket. */
     void cancel() noexcept;
-
-    /** Close the native socket handle. */
     void close_socket() noexcept;
+    void release() override;
+    void set_socket(SOCKET s) noexcept { socket_ = s; }
 
-    /** Release this implementation back to the service. */
-    void release();
+    void connect(
+        std::coroutine_handle<>,
+        capy::any_dispatcher,
+        tcp::endpoint,
+        std::stop_token,
+        system::error_code*) override;
+
+    void read_some(
+        std::coroutine_handle<>,
+        capy::any_dispatcher,
+        buffers_param<true>&,
+        std::stop_token,
+        system::error_code*,
+        std::size_t*) override;
+
+    void write_some(
+        std::coroutine_handle<>,
+        capy::any_dispatcher,
+        buffers_param<false>&,
+        std::stop_token,
+        system::error_code*,
+        std::size_t*) override;
 
     connect_op conn_;
     read_op rd_;
     write_op wr_;
     accept_op acc_;
-
-    /** Set the native socket handle.
-    
-        Used by acceptor to transfer accepted sockets.
-    */
-    void set_socket(SOCKET s) noexcept { socket_ = s; }
 
 private:
     friend class win_iocp_sockets;
@@ -175,17 +185,17 @@ public:
     void shutdown() override;
 
     /** Create a new socket implementation. */
-    socket_impl& create_impl();
+    win_socket_impl& create_impl();
 
     /** Destroy a socket implementation. */
-    void destroy_impl(socket_impl& impl);
+    void destroy_impl(win_socket_impl& impl);
 
     /** Create and register a socket with the IOCP.
 
         @param impl The socket implementation to initialize.
         @return Error code, or success.
     */
-    system::error_code open_socket(socket_impl& impl);
+    system::error_code open_socket(win_socket_impl& impl);
 
     /** Return the IOCP handle. */
     void* native_handle() const noexcept { return iocp_; }
@@ -196,11 +206,21 @@ public:
     /** Return the AcceptEx function pointer. */
     LPFN_ACCEPTEX accept_ex() const noexcept { return accept_ex_; }
 
+    /** Post an overlapped operation for completion. */
+    void post(overlapped_op* op);
+
+    /** Notify scheduler of pending I/O work. */
+    void work_started() noexcept;
+
+    /** Notify scheduler that I/O work completed. */
+    void work_finished() noexcept;
+
 private:
     void load_extension_functions();
 
+    win_iocp_scheduler& sched_;
     std::mutex mutex_;
-    capy::intrusive_list<socket_impl> list_;
+    capy::intrusive_list<win_socket_impl> list_;
     void* iocp_;
     LPFN_CONNECTEX connect_ex_ = nullptr;
     LPFN_ACCEPTEX accept_ex_ = nullptr;

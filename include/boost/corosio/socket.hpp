@@ -12,10 +12,12 @@
 
 #include <boost/corosio/detail/config.hpp>
 #include <boost/corosio/detail/except.hpp>
+#include <boost/corosio/detail/socket_impl.hpp>
 #include <boost/corosio/buffers_param.hpp>
 #include <boost/corosio/tcp.hpp>
 #include <boost/capy/affine.hpp>
 #include <boost/capy/execution_context.hpp>
+#include <boost/capy/executor.hpp>
 
 #include <boost/system/error_code.hpp>
 
@@ -26,7 +28,6 @@
 
 namespace boost {
 namespace corosio {
-namespace detail { class socket_impl; }
 
 /** An asynchronous TCP socket for coroutine I/O.
 
@@ -84,7 +85,7 @@ public:
             std::coroutine_handle<> h,
             Dispatcher const& d) -> std::coroutine_handle<>
         {
-            s_.do_connect(h, d, endpoint_, token_, &ec_);
+            s_.impl_->connect(h, d, endpoint_, token_, &ec_);
             return std::noop_coroutine();
         }
 
@@ -95,7 +96,7 @@ public:
             std::stop_token token) -> std::coroutine_handle<>
         {
             token_ = std::move(token);
-            s_.do_connect(h, d, endpoint_, token_, &ec_);
+            s_.impl_->connect(h, d, endpoint_, token_, &ec_);
             return std::noop_coroutine();
         }
     };
@@ -137,7 +138,7 @@ public:
             Dispatcher const& d) -> std::coroutine_handle<>
         {
             buffers_param_impl param(buffers_);
-            s_.do_read_some(h, d, param, token_, &ec_, &bytes_transferred_);
+            s_.impl_->read_some(h, d, param, token_, &ec_, &bytes_transferred_);
             return std::noop_coroutine();
         }
 
@@ -149,7 +150,7 @@ public:
         {
             token_ = std::move(token);
             buffers_param_impl param(buffers_);
-            s_.do_read_some(h, d, param, token_, &ec_, &bytes_transferred_);
+            s_.impl_->read_some(h, d, param, token_, &ec_, &bytes_transferred_);
             return std::noop_coroutine();
         }
     };
@@ -191,7 +192,7 @@ public:
             Dispatcher const& d) -> std::coroutine_handle<>
         {
             buffers_param_impl param(buffers_);
-            s_.do_write_some(h, d, param, token_, &ec_, &bytes_transferred_);
+            s_.impl_->write_some(h, d, param, token_, &ec_, &bytes_transferred_);
             return std::noop_coroutine();
         }
 
@@ -203,7 +204,7 @@ public:
         {
             token_ = std::move(token);
             buffers_param_impl param(buffers_);
-            s_.do_write_some(h, d, param, token_, &ec_, &bytes_transferred_);
+            s_.impl_->write_some(h, d, param, token_, &ec_, &bytes_transferred_);
             return std::noop_coroutine();
         }
     };
@@ -219,6 +220,16 @@ public:
 
     BOOST_COROSIO_DECL
     explicit socket(capy::execution_context& ctx);
+
+    /** Construct from an executor.
+
+        @param ex The executor whose context will own the socket.
+    */
+    template<capy::executor Executor>
+    explicit socket(Executor const& ex)
+        : socket(ex.context())
+    {
+    }
 
     /** Move constructor. */
     socket(socket&& other) noexcept
@@ -292,7 +303,7 @@ public:
         @return An awaitable that completes with (error_code, bytes_transferred).
     */
     template<class MutableBufferSequence>
-    read_some_awaitable<MutableBufferSequence>
+    auto
     read_some(MutableBufferSequence const& buffers)
     {
         assert(impl_ != nullptr);
@@ -305,7 +316,7 @@ public:
         @return An awaitable that completes with (error_code, bytes_transferred).
     */
     template<class ConstBufferSequence>
-    write_some_awaitable<ConstBufferSequence>
+    auto
     write_some(ConstBufferSequence const& buffers)
     {
         assert(impl_ != nullptr);
@@ -317,38 +328,15 @@ public:
     void cancel();
 
     /** Return the execution context. */
-    capy::execution_context& get_executor_context() noexcept
+    auto
+    context() const noexcept ->
+        capy::execution_context&
     {
         return *ctx_;
     }
 
 private:
     friend class tcp::acceptor;
-    BOOST_COROSIO_DECL
-    void do_connect(
-        std::coroutine_handle<>,
-        capy::any_dispatcher,
-        tcp::endpoint,
-        std::stop_token,
-        system::error_code*);
-
-    BOOST_COROSIO_DECL
-    void do_read_some(
-        std::coroutine_handle<>,
-        capy::any_dispatcher,
-        buffers_param<true>&,
-        std::stop_token,
-        system::error_code*,
-        std::size_t*);
-
-    BOOST_COROSIO_DECL
-    void do_write_some(
-        std::coroutine_handle<>,
-        capy::any_dispatcher,
-        buffers_param<false>&,
-        std::stop_token,
-        system::error_code*,
-        std::size_t*);
 
     capy::execution_context* ctx_;
     detail::socket_impl* impl_ = nullptr;

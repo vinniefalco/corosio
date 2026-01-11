@@ -124,7 +124,7 @@ struct endpoint
 
 } // namespace tcp
 
-namespace detail { class socket_impl; }
+namespace detail { class win_socket_impl; }
 class socket;
 
 namespace tcp {
@@ -257,11 +257,11 @@ private:
     static void accept_transfer(
         void* peer_ptr,
         void* svc_ptr,
-        detail::socket_impl* impl,
+        detail::win_socket_impl* impl,
         SOCKET sock);
 
     capy::execution_context* ctx_;
-    detail::socket_impl* impl_ = nullptr;
+    detail::win_socket_impl* impl_ = nullptr;
 };
 
 } // namespace tcp
