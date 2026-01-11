@@ -76,7 +76,8 @@ struct thread_context_guard
 
 win_iocp_scheduler::
 win_iocp_scheduler(
-    capy::execution_context&)
+    capy::execution_context&,
+    unsigned)
     : iocp_(CreateIoCompletionPort(
         INVALID_HANDLE_VALUE,
         nullptr,
@@ -121,6 +122,7 @@ shutdown()
     {
         if (key == work_key && overlapped != nullptr)
         {
+            pending_.fetch_sub(1, std::memory_order_relaxed);
             auto* work = reinterpret_cast<capy::executor_work*>(overlapped);
             work->destroy();
         }
@@ -162,6 +164,9 @@ void
 win_iocp_scheduler::
 post(capy::executor_work* w) const
 {
+    // Increment pending count before posting
+    pending_.fetch_add(1, std::memory_order_relaxed);
+
     // Post the work item to the IOCP
     // We use the OVERLAPPED* field to carry the work pointer
     BOOL result = ::PostQueuedCompletionStatus(
@@ -172,7 +177,8 @@ post(capy::executor_work* w) const
 
     if (!result)
     {
-        // If posting fails, destroy the work item
+        // Posting failed - decrement pending and destroy work
+        pending_.fetch_sub(1, std::memory_order_relaxed);
         w->destroy();
 
         // Claude: do we throw ::GetLastError?
@@ -230,12 +236,21 @@ do_run(unsigned long timeout, std::size_t max_handlers,
 
     while (count < max_handlers && !stopped())
     {
+        // Check pending before potentially blocking with INFINITE timeout
+        // After first handler, only block if more work is pending
+        unsigned long actual_timeout = timeout;
+        if (count > 0 && timeout != 0)
+        {
+            if (pending_.load(std::memory_order_relaxed) == 0)
+                break;
+        }
+
         BOOL result = ::GetQueuedCompletionStatus(
             iocp_,
             &bytes,
             &key,
             &overlapped,
-            timeout);
+            actual_timeout);
 
         if (!result)
         {
@@ -253,24 +268,28 @@ do_run(unsigned long timeout, std::size_t max_handlers,
 
         if (key == shutdown_key)
         {
-            // Shutdown signal received - re-post for other threads
-            ::PostQueuedCompletionStatus(
-                iocp_,
-                0,
-                shutdown_key,
-                nullptr);
-            break;
+            // Only honor shutdown if actually stopped
+            if (stopped())
+            {
+                // Re-post for other threads and exit
+                ::PostQueuedCompletionStatus(
+                    iocp_,
+                    0,
+                    shutdown_key,
+                    nullptr);
+                break;
+            }
+            // Otherwise ignore stale shutdown signal and continue
+            continue;
         }
 
         if (key == work_key && overlapped != nullptr)
         {
+            // Decrement pending count before execution
+            pending_.fetch_sub(1, std::memory_order_relaxed);
             (*reinterpret_cast<capy::executor_work*>(overlapped))();
             ++count;
         }
-
-        // After first handler, switch to non-blocking for poll behavior
-        if (timeout == 0)
-            continue;
     }
 
     return count;
@@ -309,12 +328,17 @@ do_wait(unsigned long timeout, system::error_code& ec)
 
     if (key == shutdown_key)
     {
-        // Re-post for other threads
-        ::PostQueuedCompletionStatus(
-            iocp_,
-            0,
-            shutdown_key,
-            nullptr);
+        // Only honor shutdown if actually stopped
+        if (stopped())
+        {
+            // Re-post for other threads
+            ::PostQueuedCompletionStatus(
+                iocp_,
+                0,
+                shutdown_key,
+                nullptr);
+        }
+        // Otherwise ignore stale shutdown signal
         return 0;
     }
 
@@ -340,6 +364,10 @@ run(system::error_code& ec)
 
     while (!stopped())
     {
+        // Check if there's any pending work before blocking
+        if (pending_.load(std::memory_order_relaxed) == 0)
+            break;
+
         std::size_t n = do_run(INFINITE, static_cast<std::size_t>(-1), ec);
         if (ec)
             break;
@@ -355,6 +383,12 @@ std::size_t
 win_iocp_scheduler::
 run_one(system::error_code& ec)
 {
+    // Check if there's any pending work before blocking
+    if (pending_.load(std::memory_order_relaxed) == 0)
+    {
+        ec.clear();
+        return 0;
+    }
     return do_run(INFINITE, 1, ec);
 }
 
@@ -393,6 +427,10 @@ run_until(std::chrono::steady_clock::time_point abs_time)
 
     while (!stopped())
     {
+        // Check if there's any pending work before blocking
+        if (pending_.load(std::memory_order_relaxed) == 0)
+            break;
+
         auto now = std::chrono::steady_clock::now();
         if (now >= abs_time)
             break;

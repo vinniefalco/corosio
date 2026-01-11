@@ -243,15 +243,23 @@ struct io_context_test
     testRunFor()
     {
         io_context ioc;
+        auto ex = ioc.get_executor();
+        int counter = 0;
 
-        // run_for with no work
+        // run_for with no work - should return immediately
         auto start = std::chrono::steady_clock::now();
         std::size_t n = ioc.run_for(std::chrono::milliseconds(20));
         auto elapsed = std::chrono::steady_clock::now() - start;
 
         BOOST_TEST(n == 0);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-        BOOST_TEST(ms >= 15); // Should have waited close to 20ms
+        BOOST_TEST(ms < 15); // Should return immediately when no work
+
+        // run_for with work
+        ex.post(new test_work(counter));
+        n = ioc.run_for(std::chrono::milliseconds(100));
+        BOOST_TEST(n == 1);
+        BOOST_TEST(counter == 1);
     }
 
     void

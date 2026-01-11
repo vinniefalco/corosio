@@ -155,7 +155,9 @@ public:
 
         @param ctx Reference to the owning execution_context.
     */
-    explicit win_iocp_sockets(capy::execution_context& ctx);
+    explicit
+    win_iocp_sockets(
+        capy::execution_context& ctx);
 
     /** Destroy the socket service. */
     ~win_iocp_sockets();

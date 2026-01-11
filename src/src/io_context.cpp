@@ -9,10 +9,22 @@
 
 #include <boost/corosio/io_context.hpp>
 
+#ifdef _WIN32
 #include "src/detail/win_iocp_scheduler.hpp"
+#else
+#include "src/detail/reactive_scheduler.hpp"
+#endif
+
+#include <thread>
 
 namespace boost {
 namespace corosio {
+
+#ifdef _WIN32
+using scheduler_type = detail::win_iocp_scheduler;
+#else
+using scheduler_type = detail::reactive_scheduler<false>;
+#endif
 
 io_context::
 io_context()
@@ -23,9 +35,8 @@ io_context()
 io_context::
 io_context(
     unsigned concurrency_hint)
-    : sched_(use_service<detail::win_iocp_scheduler>())
+    : sched_(make_service<scheduler_type>(concurrency_hint))
 {
-    (void)concurrency_hint;
 }
 
 } // namespace corosio

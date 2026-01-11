@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2025 Vinnie Falco (vinnie dot falco at gmail dot com)
+// Copyright (c) 2025 Vinnie Falco (vinnie.falco@gmail.com)
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -7,85 +7,82 @@
 // Official repository: https://github.com/cppalliance/corosio
 //
 
-#ifndef BOOST_COROSIO_DETAIL_WIN_IOCP_SCHEDULER_HPP
-#define BOOST_COROSIO_DETAIL_WIN_IOCP_SCHEDULER_HPP
+#ifndef BOOST_COROSIO_DETAIL_REACTIVE_SCHEDULER_HPP
+#define BOOST_COROSIO_DETAIL_REACTIVE_SCHEDULER_HPP
 
 #include <boost/corosio/detail/config.hpp>
-
-#ifdef _WIN32
-
 #include <boost/corosio/io_context.hpp>
 #include <boost/capy/execution_context.hpp>
-#include <boost/capy/thread_local_ptr.hpp>
+#include <boost/capy/executor.hpp>
 
-#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <mutex>
 
 namespace boost {
 namespace corosio {
 namespace detail {
 
-/** Windows IOCP-based scheduler service.
+// Forward declaration for reactor (placeholder for future implementation)
+class reactor;
 
-    This scheduler uses Windows I/O Completion Ports (IOCP) to manage
-    asynchronous work items. Work items are posted to the completion
-    port and dequeued during run() calls.
+/** Portable scheduler using mutex and condition variable.
 
-    IOCP provides efficient, scalable I/O completion notification and
-    is the foundation for high-performance Windows I/O. This scheduler
-    leverages IOCP's thread-safe completion queue for work dispatch.
+    This scheduler provides a portable implementation that works on
+    all platforms. It uses a mutex-protected work queue and condition
+    variable for thread synchronization.
+
+    @tparam isUnsafe When true, skips locking in certain operations.
+        Only use when all operations are guaranteed to be single-threaded.
 
     @par Thread Safety
-    This implementation is inherently thread-safe. Multiple threads
-    may call post() concurrently, and multiple threads may call
-    run() to dequeue and execute work items.
-
-    @par Usage
-    @code
-    io_context ctx;
-    auto& sched = ctx.use_service<detail::win_iocp_scheduler>();
-    // ... post work via scheduler interface
-    ctx.run();  // Processes work via IOCP
-    @endcode
-
-    @note Only available on Windows platforms.
+    When isUnsafe is false, this implementation is thread-safe.
+    Multiple threads may call post() concurrently, and multiple
+    threads may call run() to dequeue and execute work items.
 
     @see detail::scheduler
 */
-class win_iocp_scheduler
+template<bool isUnsafe = false>
+class reactive_scheduler
     : public scheduler
     , public capy::execution_context::service
 {
 public:
     using key_type = scheduler;
 
-    /** Constructs a Windows IOCP scheduler.
-
-        Creates an I/O Completion Port for managing work items.
+    /** Constructs a reactive scheduler.
 
         @param ctx Reference to the owning execution_context.
-
-        @throws std::system_error if IOCP creation fails.
+        @param one_thread When true, enables thread-local private queue
+            optimization for handlers posted from within run().
     */
-     win_iocp_scheduler(
+    explicit reactive_scheduler(
         capy::execution_context& ctx,
-        unsigned concurrency_hint = 0);
+        unsigned concurrency_hint);
 
-    /** Destroys the scheduler and releases IOCP resources.
+    /** Destroys the scheduler.
 
         Any pending work items are destroyed without execution.
     */
-    ~win_iocp_scheduler();
+    ~reactive_scheduler();
 
-    win_iocp_scheduler(win_iocp_scheduler const&) = delete;
-    win_iocp_scheduler& operator=(win_iocp_scheduler const&) = delete;
+    reactive_scheduler(reactive_scheduler const&) = delete;
+    reactive_scheduler& operator=(reactive_scheduler const&) = delete;
 
     /** Shuts down the scheduler.
 
-        Signals the IOCP to wake blocked threads and destroys any
-        remaining work items without executing them.
+        Destroys any remaining work items without executing them.
     */
     void shutdown() override;
+
+    /** Initializes the reactor task.
+
+        Called by I/O objects to lazily install the reactor. The first
+        call creates the reactor and inserts the task sentinel into
+        the work queue.
+    */
+    void init_task();
 
     /** Posts a coroutine for later execution.
 
@@ -95,14 +92,15 @@ public:
 
     /** Posts a work item for later execution.
 
-        Posts the work item to the IOCP. The item will be dequeued
-        and executed during a subsequent call to run().
+        When one_thread_ is true and called from within run(), uses
+        a fast path that pushes to a thread-local private queue
+        without acquiring the mutex.
 
         @param w Pointer to the work item. Ownership is transferred
                  to the scheduler.
 
         @par Thread Safety
-        This function is thread-safe.
+        When isUnsafe is false, this function is thread-safe.
     */
     void post(capy::executor_work* w) const override;
 
@@ -134,16 +132,9 @@ public:
 
     /** Processes pending work items.
 
-        Dequeues all available completions from the IOCP and executes
-        them. Returns when stopped or no more work is available.
-
         @param ec Set to indicate any error.
 
         @return The number of handlers executed.
-
-        @par Thread Safety
-        This function is thread-safe. Multiple threads may call
-        run() concurrently.
     */
     std::size_t run(system::error_code& ec) override;
 
@@ -159,9 +150,6 @@ public:
 
     /** Processes at most one pending work item with timeout.
 
-        Blocks until one work item is executed, the timeout expires,
-        or stop() is called.
-
         @param usec Timeout in microseconds.
         @param ec Set to indicate any error.
 
@@ -170,9 +158,6 @@ public:
     std::size_t run_one(long usec, system::error_code& ec) override;
 
     /** Wait for at most one completion without executing.
-
-        Blocks until a completion is available, the timeout expires,
-        or stop() is called. The completion is not executed.
 
         @param usec Timeout in microseconds.
         @param ec Set to indicate any error.
@@ -213,26 +198,51 @@ public:
     */
     std::size_t poll_one(system::error_code& ec) override;
 
-    /** Returns the native IOCP handle.
-
-        @return The Windows HANDLE to the I/O Completion Port.
-    */
-    void* native_handle() const noexcept { return iocp_; }
-
 private:
-    std::size_t do_run(unsigned long timeout, std::size_t max_handlers,
-        system::error_code& ec);
-    std::size_t do_wait(unsigned long timeout, system::error_code& ec);
+    struct thread_info;
 
-    void* iocp_;
-    mutable std::atomic<std::size_t> pending_{0};
-    std::atomic<bool> stopped_{false};
+    template<bool U>
+    friend struct work_cleanup;
+
+    template<bool U>
+    friend struct task_cleanup;
+
+    std::size_t do_run(
+        std::unique_lock<std::mutex>& lock,
+        thread_info& this_thread,
+        std::size_t max_handlers);
+
+    // Single-thread optimization flag
+    bool one_thread_;
+
+    // Synchronization
+    mutable std::mutex mutex_;
+    mutable std::condition_variable cv_;
+
+    // Work queue (intrusive, no allocation for queue nodes)
+    mutable capy::executor_work_queue queue_;
+
+    // State
+    std::size_t outstanding_work_ = 0;
+    bool stopped_ = false;
+    bool shutdown_ = false;
+
+    // Reactor integration (null until I/O object triggers init_task)
+    reactor* task_ = nullptr;
+    struct task_op : capy::executor_work
+    {
+        void operator()() override {}
+        void destroy() override {}
+    } task_operation_;
+    bool task_interrupted_ = true;
 };
+
+// Extern template declarations to prevent implicit instantiation
+extern template class reactive_scheduler<false>;
+extern template class reactive_scheduler<true>;
 
 } // namespace detail
 } // namespace corosio
 } // namespace boost
-
-#endif // _WIN32
 
 #endif
