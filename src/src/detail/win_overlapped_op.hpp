@@ -11,7 +11,8 @@
 #define BOOST_COROSIO_DETAIL_WIN_OVERLAPPED_OP_HPP
 
 #include <boost/corosio/detail/config.hpp>
-#include <boost/capy/affine.hpp>
+#include <boost/capy/any_dispatcher.hpp>
+#include <boost/capy/concept/affine_awaitable.hpp>
 #include <boost/capy/coro.hpp>
 #include <boost/capy/execution_context.hpp>
 #include <boost/system/error_code.hpp>

@@ -11,8 +11,9 @@
 #define BOOST_COROSIO_DETAIL_WIN_IOCP_SOCKETS_HPP
 
 #include <boost/corosio/detail/config.hpp>
-#include <boost/corosio/detail/socket_impl.hpp>
-#include <boost/capy/affine.hpp>
+#include <boost/corosio/socket.hpp>
+#include <boost/capy/any_dispatcher.hpp>
+#include <boost/capy/concept/affine_awaitable.hpp>
 #include <boost/capy/execution_context.hpp>
 #include <boost/capy/intrusive_list.hpp>
 
@@ -85,7 +86,7 @@ struct accept_op : overlapped_op
     @note Internal implementation detail. Users interact with socket class.
 */
 class win_socket_impl
-    : public socket_impl
+    : public socket::socket_impl
     , public capy::intrusive_list<win_socket_impl>::node
 {
     friend class win_iocp_sockets;

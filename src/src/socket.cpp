@@ -40,7 +40,6 @@ socket::
 socket(
     capy::execution_context& ctx)
     : ctx_(&ctx)
-    , impl_(nullptr)
 {
 }
 

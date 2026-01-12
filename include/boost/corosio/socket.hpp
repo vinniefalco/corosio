@@ -12,12 +12,13 @@
 
 #include <boost/corosio/detail/config.hpp>
 #include <boost/corosio/detail/except.hpp>
-#include <boost/corosio/detail/socket_impl.hpp>
+#include <boost/corosio/io_stream.hpp>
 #include <boost/corosio/buffers_param.hpp>
 #include <boost/corosio/tcp.hpp>
-#include <boost/capy/affine.hpp>
+#include <boost/capy/any_dispatcher.hpp>
+#include <boost/capy/concept/affine_awaitable.hpp>
 #include <boost/capy/execution_context.hpp>
-#include <boost/capy/executor.hpp>
+#include <boost/capy/concept/executor.hpp>
 
 #include <boost/system/error_code.hpp>
 
@@ -63,7 +64,7 @@ namespace corosio {
         buffers::mutable_buffer(buf, sizeof(buf)));
     @endcode
 */
-class socket
+class socket : public io_stream
 {
     struct connect_awaitable
     {
@@ -95,7 +96,7 @@ class socket
             std::coroutine_handle<> h,
             Dispatcher const& d) -> std::coroutine_handle<>
         {
-            s_.impl_->connect(h, d, endpoint_, token_, &ec_);
+            s_.get().connect(h, d, endpoint_, token_, &ec_);
             return std::noop_coroutine();
         }
 
@@ -106,107 +107,7 @@ class socket
             std::stop_token token) -> std::coroutine_handle<>
         {
             token_ = std::move(token);
-            s_.impl_->connect(h, d, endpoint_, token_, &ec_);
-            return std::noop_coroutine();
-        }
-    };
-
-    template<class MutableBufferSequence>
-    struct read_some_awaitable
-    {
-        socket& s_;
-        MutableBufferSequence buffers_;
-        std::stop_token token_;
-        mutable system::error_code ec_;
-        mutable std::size_t bytes_transferred_ = 0;
-
-        read_some_awaitable(socket& s, MutableBufferSequence buffers) noexcept
-            : s_(s)
-            , buffers_(std::move(buffers))
-        {
-        }
-
-        bool await_ready() const noexcept
-        {
-            return token_.stop_requested();
-        }
-
-        std::pair<system::error_code, std::size_t> await_resume() const noexcept
-        {
-            if (token_.stop_requested())
-                return {make_error_code(system::errc::operation_canceled), 0};
-            return {ec_, bytes_transferred_};
-        }
-
-        template<capy::dispatcher Dispatcher>
-        auto await_suspend(
-            std::coroutine_handle<> h,
-            Dispatcher const& d) -> std::coroutine_handle<>
-        {
-            buffers_param_impl param(buffers_);
-            s_.impl_->read_some(h, d, param, token_, &ec_, &bytes_transferred_);
-            return std::noop_coroutine();
-        }
-
-        template<capy::dispatcher Dispatcher>
-        auto await_suspend(
-            std::coroutine_handle<> h,
-            Dispatcher const& d,
-            std::stop_token token) -> std::coroutine_handle<>
-        {
-            token_ = std::move(token);
-            buffers_param_impl param(buffers_);
-            s_.impl_->read_some(h, d, param, token_, &ec_, &bytes_transferred_);
-            return std::noop_coroutine();
-        }
-    };
-
-    template<class ConstBufferSequence>
-    struct write_some_awaitable
-    {
-        socket& s_;
-        ConstBufferSequence buffers_;
-        std::stop_token token_;
-        mutable system::error_code ec_;
-        mutable std::size_t bytes_transferred_ = 0;
-
-        write_some_awaitable(socket& s, ConstBufferSequence buffers) noexcept
-            : s_(s)
-            , buffers_(std::move(buffers))
-        {
-        }
-
-        bool await_ready() const noexcept
-        {
-            return token_.stop_requested();
-        }
-
-        std::pair<system::error_code, std::size_t> await_resume() const noexcept
-        {
-            if (token_.stop_requested())
-                return {make_error_code(system::errc::operation_canceled), 0};
-            return {ec_, bytes_transferred_};
-        }
-
-        template<capy::dispatcher Dispatcher>
-        auto await_suspend(
-            std::coroutine_handle<> h,
-            Dispatcher const& d) -> std::coroutine_handle<>
-        {
-            buffers_param_impl param(buffers_);
-            s_.impl_->write_some(h, d, param, token_, &ec_, &bytes_transferred_);
-            return std::noop_coroutine();
-        }
-
-        template<capy::dispatcher Dispatcher>
-        auto await_suspend(
-            std::coroutine_handle<> h,
-            Dispatcher const& d,
-            std::stop_token token) -> std::coroutine_handle<>
-        {
-            token_ = std::move(token);
-            buffers_param_impl param(buffers_);
-            s_.impl_->write_some(h, d, param, token_, &ec_, &bytes_transferred_);
+            s_.get().connect(h, d, endpoint_, token_, &ec_);
             return std::noop_coroutine();
         }
     };
@@ -248,8 +149,8 @@ public:
     */
     socket(socket&& other) noexcept
         : ctx_(other.ctx_)
-        , impl_(other.impl_)
     {
+        impl_ = other.impl_;
         other.impl_ = nullptr;
     }
 
@@ -338,70 +239,6 @@ public:
         return connect_awaitable(*this, ep);
     }
 
-    /** Initiate an asynchronous read operation.
-
-        Reads available data into the provided buffer sequence. The
-        operation completes when at least one byte has been read, or
-        an error occurs.
-
-        The operation supports cancellation via `std::stop_token` through
-        the affine awaitable protocol. If the associated stop token is
-        triggered, the operation completes immediately with
-        `errc::operation_canceled`.
-
-        @param buffers The buffer sequence to read data into.
-
-        @return An awaitable that completes with a pair of
-            `{error_code, bytes_transferred}`. Returns success with the
-            number of bytes read, or an error code on failure including:
-            - connection_reset: Peer closed the connection
-            - operation_canceled: Cancelled via stop_token or cancel()
-
-        @par Preconditions
-        The socket must be open and connected.
-
-        @note This function may return fewer bytes than the buffer
-            capacity. Use a loop to read an exact amount.
-    */
-    template<class MutableBufferSequence>
-    auto read_some(MutableBufferSequence const& buffers)
-    {
-        assert(impl_ != nullptr);
-        return read_some_awaitable<MutableBufferSequence>(*this, buffers);
-    }
-
-    /** Initiate an asynchronous write operation.
-
-        Writes data from the provided buffer sequence. The operation
-        completes when at least one byte has been written, or an
-        error occurs.
-
-        The operation supports cancellation via `std::stop_token` through
-        the affine awaitable protocol. If the associated stop token is
-        triggered, the operation completes immediately with
-        `errc::operation_canceled`.
-
-        @param buffers The buffer sequence containing data to write.
-
-        @return An awaitable that completes with a pair of
-            `{error_code, bytes_transferred}`. Returns success with the
-            number of bytes written, or an error code on failure including:
-            - broken_pipe: Connection closed by peer
-            - operation_canceled: Cancelled via stop_token or cancel()
-
-        @par Preconditions
-        The socket must be open and connected.
-
-        @note This function may write fewer bytes than the buffer
-            contains. Use a loop to write all data.
-    */
-    template<class ConstBufferSequence>
-    auto write_some(ConstBufferSequence const& buffers)
-    {
-        assert(impl_ != nullptr);
-        return write_some_awaitable<ConstBufferSequence>(*this, buffers);
-    }
-
     /** Cancel any pending asynchronous operations.
 
         All outstanding operations complete with `errc::operation_canceled`.
@@ -420,11 +257,29 @@ public:
         return *ctx_;
     }
 
+    struct socket_impl : io_stream_impl
+    {
+        virtual ~socket_impl() = default;
+    
+        virtual void release() = 0;
+    
+        virtual void connect(
+            std::coroutine_handle<>,
+            capy::any_dispatcher,
+            tcp::endpoint,
+            std::stop_token,
+            system::error_code*) = 0;
+    };
+    
 private:
     friend class tcp::acceptor;
 
+    inline socket_impl& get() const noexcept
+    {
+        return *static_cast<socket_impl*>(impl_);
+    }
+
     capy::execution_context* ctx_;
-    detail::socket_impl* impl_ = nullptr;
 };
 
 } // namespace corosio

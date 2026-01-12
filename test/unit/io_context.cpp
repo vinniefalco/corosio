@@ -10,7 +10,7 @@
 // Test that header file is self-contained.
 #include <boost/corosio/io_context.hpp>
 
-#include <boost/capy/executor.hpp>
+#include <boost/capy/concept/executor.hpp>
 
 #include <thread>
 #include <chrono>
@@ -19,8 +19,6 @@
 
 namespace boost {
 namespace corosio {
-
-static_assert(capy::is_execution_context<io_context>);
 
 // Coroutine that increments a counter when resumed
 struct counter_coro

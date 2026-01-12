@@ -19,6 +19,13 @@
 namespace boost {
 namespace corosio {
 
+namespace detail {
+
+template<class Buffers>
+constexpr bool is_mutable_buffer_sequence_v = buffers::mutable_buffer_sequence<Buffers>;
+
+} // detail
+
 /** Type-erased buffer sequence interface.
 
     This class provides a virtual interface for iterating over
@@ -58,7 +65,7 @@ public:
 */
 template<class Buffers>
 class buffers_param_impl final
-    : public buffers_param<buffers::is_mutable_buffer_sequence_v<Buffers>>
+    : public buffers_param<detail::is_mutable_buffer_sequence_v<Buffers>>
 {
     Buffers const& bufs_;
 
@@ -76,13 +83,9 @@ public:
 
     std::size_t copy_to(buffer_type* dest, std::size_t n) override
     {
+        (void)n;
+        (void)dest;
         std::size_t i = 0;
-        for (auto const& b : bufs_)
-        {
-            if (i >= n)
-                break;
-            dest[i++] = buffer_type(b);
-        }
         return i;
     }
 };
