@@ -20,6 +20,7 @@
     - @ref boost::corosio::socket "socket" — Asynchronous TCP socket
     - @ref boost::corosio::tcp::acceptor "tcp::acceptor" — Server-side connection acceptance
     - @ref boost::corosio::tcp::endpoint "tcp::endpoint" — TCP address and port
+    - @ref boost::corosio::endpoint "endpoint" — IP endpoint supporting IPv4 and IPv6
     - @ref boost::corosio::tls_stream "tls_stream" — TLS stream adapter
 
     @par Example
@@ -44,6 +45,7 @@
 #include <boost/corosio/io_context.hpp>
 #include <boost/corosio/socket.hpp>
 #include <boost/corosio/tcp.hpp>
+#include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/tls_stream.hpp>
 
 #endif
