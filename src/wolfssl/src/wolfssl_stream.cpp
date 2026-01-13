@@ -111,6 +111,9 @@ struct wolfssl_stream_impl_
     };
     op_buffers* current_op_ = nullptr;
 
+    // Renegotiation can cause both TLS read/write to access the socket
+    capy::async_mutex io_mutex_;
+
     //--------------------------------------------------------------------------
 
     explicit
@@ -203,6 +206,22 @@ struct wolfssl_stream_impl_
     }
 
     //--------------------------------------------------------------------------
+
+    capy::task<io_result<std::size_t>>
+    do_underlying_read(capy::mutable_buffer buf)
+    {
+        auto guard = co_await io_mutex_.scoped_lock();
+        co_return co_await s_.read_some(buf);
+    }
+
+    capy::task<io_result<std::size_t>>
+    do_underlying_write(capy::mutable_buffer buf)
+    {
+        auto guard = co_await io_mutex_.scoped_lock();
+        co_return co_await s_.write_some(buf);
+    }
+
+    //--------------------------------------------------------------------------
     // Inner coroutines for TLS read/write operations
     //--------------------------------------------------------------------------
 
@@ -262,20 +281,19 @@ struct wolfssl_stream_impl_
 
                     if(err == WOLFSSL_ERROR_WANT_READ)
                     {
-                        // Need to read from underlying stream
                         if(read_in_pos_ == read_in_len_) { read_in_pos_ = 0; read_in_len_ = 0; }
                         capy::mutable_buffer buf(read_in_buf_.data() + read_in_len_, read_in_buf_.size() - read_in_len_);
-                        auto [rec, rn] = co_await s_.read_some(buf);
+                        auto [rec, rn] = co_await do_underlying_read(buf);
                         if(rec) { ec = rec; goto done; }
                         read_in_len_ += rn;
                     }
                     else if(err == WOLFSSL_ERROR_WANT_WRITE)
                     {
-                        // Need to flush output (can happen during renegotiation)
+                        // Renegotiation
                         while(read_out_len_ > 0)
                         {
                             capy::mutable_buffer buf(read_out_buf_.data(), read_out_len_);
-                            auto [wec, wn] = co_await s_.write_some(buf);
+                            auto [wec, wn] = co_await do_underlying_write(buf);
                             if(wec) { ec = wec; goto done; }
                             if(wn < read_out_len_)
                                 std::memmove(read_out_buf_.data(), read_out_buf_.data() + wn, read_out_len_ - wn);
@@ -365,7 +383,7 @@ struct wolfssl_stream_impl_
                         while(write_out_len_ > 0)
                         {
                             capy::mutable_buffer buf(write_out_buf_.data(), write_out_len_);
-                            auto [wec, wn] = co_await s_.write_some(buf);
+                            auto [wec, wn] = co_await do_underlying_write(buf);
                             if(wec) { ec = wec; goto done; }
                             if(wn < write_out_len_)
                                 std::memmove(write_out_buf_.data(), write_out_buf_.data() + wn, write_out_len_ - wn);
@@ -380,11 +398,10 @@ struct wolfssl_stream_impl_
 
                     if(err == WOLFSSL_ERROR_WANT_WRITE)
                     {
-                        // Need to flush output buffer
                         while(write_out_len_ > 0)
                         {
                             capy::mutable_buffer buf(write_out_buf_.data(), write_out_len_);
-                            auto [wec, wn] = co_await s_.write_some(buf);
+                            auto [wec, wn] = co_await do_underlying_write(buf);
                             if(wec) { ec = wec; goto done; }
                             if(wn < write_out_len_)
                                 std::memmove(write_out_buf_.data(), write_out_buf_.data() + wn, write_out_len_ - wn);
@@ -393,10 +410,10 @@ struct wolfssl_stream_impl_
                     }
                     else if(err == WOLFSSL_ERROR_WANT_READ)
                     {
-                        // Need to read (can happen during renegotiation)
+                        // Renegotiation
                         if(write_in_pos_ == write_in_len_) { write_in_pos_ = 0; write_in_len_ = 0; }
                         capy::mutable_buffer buf(write_in_buf_.data() + write_in_len_, write_in_buf_.size() - write_in_len_);
-                        auto [rec, rn] = co_await s_.read_some(buf);
+                        auto [rec, rn] = co_await do_underlying_read(buf);
                         if(rec) { ec = rec; goto done; }
                         write_in_len_ += rn;
                     }
@@ -466,7 +483,7 @@ struct wolfssl_stream_impl_
                 while(read_out_len_ > 0)
                 {
                     capy::mutable_buffer buf(read_out_buf_.data(), read_out_len_);
-                    auto [wec, wn] = co_await s_.write_some(buf);
+                    auto [wec, wn] = co_await do_underlying_write(buf);
                     if(wec)
                     {
                         ec = wec;
@@ -484,12 +501,11 @@ struct wolfssl_stream_impl_
 
                 if(err == WOLFSSL_ERROR_WANT_READ)
                 {
-                    // Flush any pending output BEFORE reading
-                    // (e.g., ClientHello must be sent before we can receive ServerHello)
+                    // Must flush (e.g. ClientHello) before reading ServerHello
                     while(read_out_len_ > 0)
                     {
                         capy::mutable_buffer buf(read_out_buf_.data(), read_out_len_);
-                        auto [wec, wn] = co_await s_.write_some(buf);
+                        auto [wec, wn] = co_await do_underlying_write(buf);
                         if(wec)
                         {
                             ec = wec;
@@ -500,7 +516,6 @@ struct wolfssl_stream_impl_
                         read_out_len_ -= wn;
                     }
 
-                    // Need to read from underlying stream
                     if(read_in_pos_ == read_in_len_)
                     {
                         read_in_pos_ = 0;
@@ -509,7 +524,7 @@ struct wolfssl_stream_impl_
                     capy::mutable_buffer buf(
                         read_in_buf_.data() + read_in_len_,
                         read_in_buf_.size() - read_in_len_);
-                    auto [rec, rn] = co_await s_.read_some(buf);
+                    auto [rec, rn] = co_await do_underlying_read(buf);
                     if(rec)
                     {
                         ec = rec;
@@ -519,11 +534,10 @@ struct wolfssl_stream_impl_
                 }
                 else if(err == WOLFSSL_ERROR_WANT_WRITE)
                 {
-                    // Need to flush output buffer
                     while(read_out_len_ > 0)
                     {
                         capy::mutable_buffer buf(read_out_buf_.data(), read_out_len_);
-                        auto [wec, wn] = co_await s_.write_some(buf);
+                        auto [wec, wn] = co_await do_underlying_write(buf);
                         if(wec)
                         {
                             ec = wec;
