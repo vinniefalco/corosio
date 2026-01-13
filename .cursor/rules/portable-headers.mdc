@@ -1,9 +1,7 @@
 ---
 description: No non-portable header includes in public headers
-globs:
-alwaysApply: true
+alwaysApply: false
 ---
-
 # Portable Headers Rule
 
 **All headers in `include/boost/corosio/` (including all subdirectories) MUST NOT include platform-specific headers.**
