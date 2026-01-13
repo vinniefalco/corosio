@@ -23,6 +23,7 @@
 #include <wolfssl/error-ssl.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <vector>
 
@@ -81,12 +82,15 @@ constexpr std::size_t default_buffer_size = 16384;
 // Maximum number of buffers to handle in a single operation
 constexpr std::size_t max_buffers = 8;
 
+// Buffer array type for coroutine parameters (copied into frame)
+using buffer_array = std::array<capy::mutable_buffer, max_buffers>;
+
 } // namespace
 
 //------------------------------------------------------------------------------
 
-struct wolfssl_stream::wolfssl_stream_impl
-    : io_stream::io_stream_impl
+struct wolfssl_stream_impl_
+    : wolfssl_stream::wolfssl_stream_impl
 {
     io_stream& s_;
     WOLFSSL_CTX* ctx_ = nullptr;
@@ -126,7 +130,7 @@ struct wolfssl_stream::wolfssl_stream_impl
     //--------------------------------------------------------------------------
 
     explicit
-    wolfssl_stream_impl(io_stream& s)
+    wolfssl_stream_impl_(io_stream& s)
         : s_(s)
     {
         read_in_buf_.resize(default_buffer_size);
@@ -135,7 +139,7 @@ struct wolfssl_stream::wolfssl_stream_impl
         write_out_buf_.resize(default_buffer_size);
     }
 
-    ~wolfssl_stream_impl()
+    ~wolfssl_stream_impl_()
     {
         if(ssl_)
             wolfSSL_free(ssl_);
@@ -155,7 +159,7 @@ struct wolfssl_stream::wolfssl_stream_impl
     static int
     recv_callback(WOLFSSL*, char* buf, int sz, void* ctx)
     {
-        auto* impl = static_cast<wolfssl_stream_impl*>(ctx);
+        auto* impl = static_cast<wolfssl_stream_impl_*>(ctx);
         auto* op = impl->current_op_;
 
         // Check if we have data in the input buffer
@@ -190,7 +194,7 @@ struct wolfssl_stream::wolfssl_stream_impl
     static int
     send_callback(WOLFSSL*, char* buf, int sz, void* ctx)
     {
-        auto* impl = static_cast<wolfssl_stream_impl*>(ctx);
+        auto* impl = static_cast<wolfssl_stream_impl_*>(ctx);
         auto* op = impl->current_op_;
 
         // Check if we have room in the output buffer
@@ -288,7 +292,7 @@ struct wolfssl_stream::wolfssl_stream_impl
     */
     capy::task<>
     do_read_some(
-        capy::mutable_buffer* dest_bufs,
+        buffer_array dest_bufs,
         std::size_t buf_count,
         std::stop_token token,
         system::error_code* ec_out,
@@ -388,7 +392,7 @@ struct wolfssl_stream::wolfssl_stream_impl
     */
     capy::task<>
     do_write_some(
-        capy::mutable_buffer* src_bufs,
+        buffer_array src_bufs,
         std::size_t buf_count,
         std::stop_token token,
         system::error_code* ec_out,
@@ -485,6 +489,93 @@ struct wolfssl_stream::wolfssl_stream_impl
         co_return;
     }
 
+    /** Inner coroutine that performs TLS handshake with WANT_READ/WANT_WRITE loop.
+
+        Calls wolfSSL_connect (client) or wolfSSL_accept (server) in a loop,
+        performing async I/O on the underlying stream when needed.
+    */
+    capy::task<>
+    do_handshake(
+        int type,
+        std::stop_token token,
+        system::error_code* ec_out,
+        std::coroutine_handle<> continuation,
+        capy::any_dispatcher d)
+    {
+        system::error_code ec;
+
+        // Set up operation buffers for callbacks (use read buffers for handshake)
+        op_buffers op{
+            &read_in_buf_, &read_in_pos_, &read_in_len_,
+            &read_out_buf_, &read_out_len_,
+            false, false
+        };
+        current_op_ = &op;
+
+        while(!token.stop_requested())
+        {
+            op.want_read = false;
+            op.want_write = false;
+
+            // Call appropriate handshake function based on type
+            int ret;
+            if(type == wolfssl_stream::client)
+                ret = wolfSSL_connect(ssl_);
+            else
+                ret = wolfSSL_accept(ssl_);
+
+            if(ret == WOLFSSL_SUCCESS)
+            {
+                // Handshake completed successfully
+                // Flush any remaining output
+                if(read_out_len_ > 0)
+                {
+                    ec = co_await do_underlying_write(
+                        read_out_buf_, read_out_len_);
+                }
+                break;
+            }
+            else
+            {
+                int err = wolfSSL_get_error(ssl_, ret);
+
+                if(err == WOLFSSL_ERROR_WANT_READ)
+                {
+                    // Need to read from underlying stream
+                    ec = co_await do_underlying_read(
+                        read_in_buf_, read_in_pos_, read_in_len_);
+                    if(ec)
+                        break;
+                }
+                else if(err == WOLFSSL_ERROR_WANT_WRITE)
+                {
+                    // Need to flush output buffer
+                    ec = co_await do_underlying_write(
+                        read_out_buf_, read_out_len_);
+                    if(ec)
+                        break;
+                }
+                else
+                {
+                    // Other error
+                    ec = system::error_code(err, system::system_category());
+                    break;
+                }
+            }
+        }
+
+        current_op_ = nullptr;
+
+        if(token.stop_requested())
+            ec = make_error_code(system::errc::operation_canceled);
+
+        *ec_out = ec;
+
+        // Resume the original caller via dispatcher
+        d(capy::coro{continuation}).resume();
+        co_return;
+    }
+
     //--------------------------------------------------------------------------
     // io_stream_impl interface
     //--------------------------------------------------------------------------
@@ -503,8 +594,9 @@ struct wolfssl_stream::wolfssl_stream_impl
         std::size_t* bytes) override
     {
         // Extract buffers from type-erased parameter
-        capy::mutable_buffer bufs[max_buffers];
-        std::size_t count = param.copy_to(bufs, max_buffers);
+        // Pass by value so array is copied into coroutine frame
+        buffer_array bufs{};
+        std::size_t count = param.copy_to(bufs.data(), max_buffers);
 
         // Launch inner coroutine via async_run
         capy::async_run(d)(
@@ -520,12 +612,25 @@ struct wolfssl_stream::wolfssl_stream_impl
         std::size_t* bytes) override
     {
         // Extract buffers from type-erased parameter
-        capy::mutable_buffer bufs[max_buffers];
-        std::size_t count = param.copy_to(bufs, max_buffers);
+        // Pass by value so array is copied into coroutine frame
+        buffer_array bufs{};
+        std::size_t count = param.copy_to(bufs.data(), max_buffers);
 
         // Launch inner coroutine via async_run
         capy::async_run(d)(
             do_write_some(bufs, count, token, ec, bytes, h, d));
+    }
+
+    void handshake(
+        std::coroutine_handle<> h,
+        capy::any_dispatcher d,
+        int type,
+        std::stop_token token,
+        system::error_code* ec) override
+    {
+        // Launch inner coroutine via async_run
+        capy::async_run(d)(
+            do_handshake(type, token, ec, h, d));
     }
 
     //--------------------------------------------------------------------------
@@ -568,11 +673,18 @@ struct wolfssl_stream::wolfssl_stream_impl
 
 //------------------------------------------------------------------------------
 
+wolfssl_stream::
+wolfssl_stream(io_stream& stream)
+    : s_(stream)
+{
+    construct();
+}
+
 void
 wolfssl_stream::
 construct()
 {
-    auto* impl = new wolfssl_stream_impl(*s_);
+    auto* impl = new wolfssl_stream_impl_(s_);
 
     // Initialize WolfSSL
     auto ec = impl->init_ssl();

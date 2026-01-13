@@ -8,6 +8,7 @@
 //
 
 #include <boost/corosio.hpp>
+#include <boost/corosio/wolfssl_stream.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/async_run.hpp>
 #include <boost/capy/buffers.hpp>
@@ -22,7 +23,7 @@
 namespace corosio = boost::corosio;
 namespace capy = boost::capy;
 
-// Coroutine that performs the HTTP GET request
+// Coroutine that performs the HTTPS GET request
 // Demonstrates the concise exception-based pattern using .value()
 capy::task<void>
 do_request(
@@ -61,7 +62,10 @@ run_client(
     // Connect to the server (throws on error)
     (co_await s.connect(corosio::endpoint(addr, port))).value();
 
-    co_await do_request(s, addr.to_string());
+    // Wrap socket in TLS stream
+    corosio::wolfssl_stream secure(s);
+
+    co_await do_request(secure, addr.to_string());
 }
 
 int
@@ -70,9 +74,9 @@ main(int argc, char* argv[])
     if (argc != 3)
     {
         std::cerr <<
-            "Usage: http_client <ip-address> <port>\n"
+            "Usage: https_client <ip-address> <port>\n"
             "Example:\n"
-            "    http_client 35.190.118.110 80\n";
+            "    https_client 35.190.118.110 443\n";
         return EXIT_FAILURE;
     }
 
