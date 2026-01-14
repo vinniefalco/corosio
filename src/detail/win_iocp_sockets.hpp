@@ -49,8 +49,12 @@ struct read_op : overlapped_op
     WSABUF wsabufs[max_buffers];
     DWORD wsabuf_count = 0;
     DWORD flags = 0;
+    win_socket_impl& impl;
+
+    explicit read_op(win_socket_impl& impl_) noexcept : impl(impl_) {}
 
     bool is_read_operation() const noexcept override { return true; }
+    void do_cancel() noexcept override;
 };
 
 /** Write operation state with buffer descriptors. */
@@ -59,6 +63,11 @@ struct write_op : overlapped_op
     static constexpr std::size_t max_buffers = 16;
     WSABUF wsabufs[max_buffers];
     DWORD wsabuf_count = 0;
+    win_socket_impl& impl;
+
+    explicit write_op(win_socket_impl& impl_) noexcept : impl(impl_) {}
+
+    void do_cancel() noexcept override;
 };
 
 /** Accept operation state. */

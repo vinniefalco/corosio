@@ -87,9 +87,35 @@ do_cancel() noexcept
     }
 }
 
+void
+read_op::
+do_cancel() noexcept
+{
+    if (impl.is_open())
+    {
+        ::CancelIoEx(
+            reinterpret_cast<HANDLE>(impl.native_handle()),
+            this);
+    }
+}
+
+void
+write_op::
+do_cancel() noexcept
+{
+    if (impl.is_open())
+    {
+        ::CancelIoEx(
+            reinterpret_cast<HANDLE>(impl.native_handle()),
+            this);
+    }
+}
+
 win_socket_impl::
 win_socket_impl(win_iocp_sockets& svc) noexcept
     : svc_(svc)
+    , rd_(*this)
+    , wr_(*this)
 {
 }
 
