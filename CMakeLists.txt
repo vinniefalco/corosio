@@ -64,6 +64,11 @@ foreach (BOOST_COROSIO_DEPENDENCY ${BOOST_COROSIO_DEPENDENCIES})
     endif ()
 endforeach ()
 
+# Include asio and filesystem which are needed by capy's tests
+if (BOOST_COROSIO_BUILD_TESTS)
+    list(APPEND BOOST_COROSIO_INCLUDE_LIBRARIES asio filesystem)
+endif ()
+
 # Complete dependency list
 set(BOOST_INCLUDE_LIBRARIES ${BOOST_COROSIO_INCLUDE_LIBRARIES})
 set(BOOST_EXCLUDE_LIBRARIES corosio)
@@ -141,8 +146,7 @@ function(boost_corosio_setup_properties target)
     target_compile_features(${target} PUBLIC cxx_std_20)
     target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/include")
     target_include_directories(${target} PRIVATE
-        "${PROJECT_SOURCE_DIR}/src/corosio"
-        "${PROJECT_SOURCE_DIR}/src/corosio/src")
+        "${PROJECT_SOURCE_DIR}/src/corosio")
     target_link_libraries(${target}
         PUBLIC
             ${BOOST_COROSIO_DEPENDENCIES}
