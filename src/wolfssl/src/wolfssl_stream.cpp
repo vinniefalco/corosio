@@ -326,7 +326,7 @@ struct wolfssl_stream_impl_
         *bytes_out = total_read;
 
         // Resume the original caller via dispatcher
-        d(capy::coro{continuation}).resume();
+        d(capy::any_coro{continuation}).resume();
         co_return;
     }
 
@@ -437,7 +437,7 @@ struct wolfssl_stream_impl_
         *bytes_out = total_written;
 
         // Resume the original caller via dispatcher
-        d(capy::coro{continuation}).resume();
+        d(capy::any_coro{continuation}).resume();
         co_return;
     }
 
@@ -566,7 +566,7 @@ struct wolfssl_stream_impl_
         *ec_out = ec;
 
         // Resume the original caller via dispatcher
-        d(capy::coro{continuation}).resume();
+        d(capy::any_coro{continuation}).resume();
         co_return;
     }
 

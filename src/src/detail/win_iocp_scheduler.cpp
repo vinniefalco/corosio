@@ -166,16 +166,16 @@ shutdown()
 
 void
 win_iocp_scheduler::
-post(capy::coro h) const
+post(capy::any_coro h) const
 {
     struct post_handler
         : capy::execution_context::handler
     {
-        capy::coro h_;
+        capy::any_coro h_;
         long ready_ = 1;  // always ready for immediate dispatch
 
         explicit
-        post_handler(capy::coro h)
+        post_handler(capy::any_coro h)
             : h_(h)
         {
         }

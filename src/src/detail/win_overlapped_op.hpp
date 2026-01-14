@@ -13,7 +13,7 @@
 #include <boost/corosio/detail/config.hpp>
 #include <boost/capy/ex/any_dispatcher.hpp>
 #include <boost/capy/concept/affine_awaitable.hpp>
-#include <boost/capy/ex/coro.hpp>
+#include <boost/capy/ex/any_coro.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/system/error_code.hpp>
@@ -39,7 +39,7 @@ struct overlapped_op
         void operator()() const noexcept { op->request_cancel(); }
     };
 
-    capy::coro h;
+    capy::any_coro h;
     capy::any_dispatcher d;
     system::error_code* ec_out = nullptr;
     std::size_t* bytes_out = nullptr;

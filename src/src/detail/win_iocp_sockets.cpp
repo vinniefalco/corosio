@@ -92,7 +92,7 @@ release()
 void
 win_socket_impl::
 connect(
-    capy::coro h,
+    capy::any_coro h,
     capy::any_dispatcher d,
     endpoint ep,
     std::stop_token token,
@@ -162,7 +162,7 @@ connect(
 void
 win_socket_impl::
 read_some(
-    capy::coro h,
+    capy::any_coro h,
     capy::any_dispatcher d,
     any_bufref& param,
     std::stop_token token,
@@ -223,7 +223,7 @@ read_some(
 void
 win_socket_impl::
 write_some(
-    capy::coro h,
+    capy::any_coro h,
     capy::any_dispatcher d,
     any_bufref& param,
     std::stop_token token,
@@ -599,7 +599,7 @@ release()
 void
 win_acceptor_impl::
 accept(
-    capy::coro h,
+    capy::any_coro h,
     capy::any_dispatcher d,
     std::stop_token token,
     system::error_code* ec,
