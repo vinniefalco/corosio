@@ -151,7 +151,10 @@ function(boost_corosio_setup_properties target)
         PUBLIC
             ${BOOST_COROSIO_DEPENDENCIES}
             $<$<PLATFORM_ID:Windows>:ws2_32>)
-    target_compile_definitions(${target} PUBLIC BOOST_COROSIO_NO_LIB)
+    target_compile_definitions(${target}
+        PUBLIC
+            BOOST_COROSIO_NO_LIB
+            $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0A00>)
     target_compile_definitions(${target} PRIVATE BOOST_COROSIO_SOURCE)
     if (BUILD_SHARED_LIBS)
         target_compile_definitions(${target} PUBLIC BOOST_COROSIO_DYN_LINK)
