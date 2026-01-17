@@ -14,47 +14,51 @@ asynchronous networking primitives with automatic executor affinity propagation.
 
 == What This Library Does
 
-Corosio provides asynchronous I/O operations that integrate seamlessly with
-C++20 coroutines through the affine awaitable protocol. When you `co_await`
-an I/O operation, the completion resumes your coroutine on the correct executor
-without manual dispatch.
+Corosio provides asynchronous I/O operations designed from the ground up for
+C++20 coroutines. Every operation returns an awaitable that integrates with
+the _affine awaitable protocol_, ensuring your coroutines resume on the correct
+executor without manual dispatch.
 
-Corosio provides:
-
-* **io_context** — An event loop for processing asynchronous operations
-* **socket** — Asynchronous TCP socket with affine-aware awaitables
-* **endpoint** — IP endpoint supporting IPv4 and IPv6
-* **Affine awaitable protocol** — Automatic executor affinity through coroutine chains
+* **io_context** — Event loop for processing asynchronous operations
+* **socket** — Asynchronous TCP socket with connect, read, and write
+* **acceptor** — TCP listener for accepting incoming connections
+* **resolver** — Asynchronous DNS resolution
+* **timer** — Asynchronous timer for delays and timeouts
+* **signal_set** — Asynchronous signal handling
+* **wolfssl_stream** — TLS encryption using WolfSSL
 
 == What This Library Does Not Do
 
-Corosio focuses on coroutine-first I/O. It does not include:
+Corosio focuses on coroutine-first I/O primitives. It does not include:
 
-* General-purpose executor abstractions (use Boost.Capy for that)
+* General-purpose executor abstractions (use Boost.Capy)
 * The sender/receiver execution model (P2300)
-* HTTP, WebSocket, or other application protocols
+* HTTP, WebSocket, or other application protocols (use Boost.Http or Boost.Beast2)
 * UDP or other transport protocols (TCP only for now)
 
-Corosio is designed to work with Boost.Capy's task and executor infrastructure.
+Corosio works with Boost.Capy for task management and execution contexts.
 
 == Design Philosophy
 
 **Coroutines first.** Every I/O operation returns an awaitable. There are no
-callback-based interfaces to maintain compatibility with.
+callback-based interfaces.
 
-**Affinity through the protocol.** The dispatcher propagates through
-`await_suspend` parameters, not through thread-local storage or global state.
-When an I/O operation completes, it resumes your coroutine through the
-dispatcher you provided, ensuring execution on the correct executor.
+**Affinity through protocol.** The dispatcher propagates through `await_suspend`
+parameters, not through thread-local storage. When an I/O operation completes,
+it resumes your coroutine through the dispatcher you provided.
 
-**Type erasure at I/O boundaries.** The socket implementation uses type-erased
-dispatchers internally. For I/O-bound code, the indirection cost is negligible
-compared to actual I/O latency.
+**Structured bindings.** Results use `io_result<T>` which supports structured
+bindings: `auto [ec, n] = co_await s.read_some(buf)`. Call `.value()` to throw
+on error instead.
+
+**Type erasure at I/O boundaries.** Socket implementations use type-erased
+dispatchers internally. The indirection cost is negligible compared to I/O
+latency.
 
 == Requirements
 
 * C++20 compiler with coroutine support
-* Boost (capy, buffers, url, system)
+* Boost libraries: Capy, URL, System
 
 === Tested Compilers
 
@@ -80,13 +84,13 @@ compared to actual I/O latency.
 namespace corosio = boost::corosio;
 namespace capy = boost::capy;
 
-capy::task<void> connect_and_read(corosio::io_context& ioc)
+capy::task<void> connect_example(corosio::io_context& ioc)
 {
     corosio::socket s(ioc);
     s.open();
 
-    // Connect to server
-    auto ec = co_await s.connect(
+    // Connect using structured bindings
+    auto [ec] = co_await s.connect(
         corosio::endpoint(boost::urls::ipv4_address::loopback(), 8080));
 
     if (ec)
@@ -98,7 +102,7 @@ capy::task<void> connect_and_read(corosio::io_context& ioc)
     // Read some data
     char buf[1024];
     auto [read_ec, n] = co_await s.read_some(
-        boost::buffers::mutable_buffer(buf, sizeof(buf)));
+        capy::mutable_buffer(buf, sizeof(buf)));
 
     if (!read_ec)
         std::cout << "Received " << n << " bytes\n";
@@ -107,13 +111,13 @@ capy::task<void> connect_and_read(corosio::io_context& ioc)
 int main()
 {
     corosio::io_context ioc;
-    capy::run_async(ioc.get_executor())(connect_and_read(ioc));
+    capy::run_async(ioc.get_executor())(connect_example(ioc));
     ioc.run();
 }
 ----
 
 == Next Steps
 
-* xref:quick-start.adoc[Quick Start] — Build a working echo server in 5 minutes
-* xref:io/io_context.adoc[I/O Context] — Understand the event loop
-* xref:io/sockets.adoc[Sockets] — Learn socket operations in detail
+* xref:quick-start.adoc[Quick Start] — Build a working echo server
+* xref:guide/io-context.adoc[I/O Context] — Understand the event loop
+* xref:guide/sockets.adoc[Sockets] — Learn socket operations in detail

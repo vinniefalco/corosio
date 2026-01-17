@@ -1,0 +1,263 @@
+//
+// Copyright (c) 2025 Vinnie Falco (vinnie.falco@gmail.com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/corosio
+//
+
+= TLS Encryption
+
+The `wolfssl_stream` class provides TLS encryption using the WolfSSL library.
+It wraps an existing stream (like `socket`) and provides encrypted I/O.
+
+NOTE: Code snippets assume:
+[source,cpp]
+----
+#include <boost/corosio/wolfssl_stream.hpp>
+#include <boost/corosio/socket.hpp>
+
+namespace corosio = boost::corosio;
+----
+
+== Overview
+
+[source,cpp]
+----
+// Create and connect a socket
+corosio::socket sock(ioc);
+sock.open();
+(co_await sock.connect(endpoint)).value();
+
+// Wrap in TLS
+corosio::wolfssl_stream secure(sock);
+(co_await secure.handshake(corosio::wolfssl_stream::client)).value();
+
+// Use secure stream for encrypted I/O
+auto [ec, n] = co_await secure.read_some(buffer);
+----
+
+== Construction
+
+A `wolfssl_stream` wraps an existing `io_stream`:
+
+[source,cpp]
+----
+corosio::socket sock(ioc);
+corosio::wolfssl_stream secure(sock);
+----
+
+IMPORTANT: The underlying stream must remain valid for the lifetime of the
+`wolfssl_stream`. The `wolfssl_stream` does not take ownership.
+
+== Handshake
+
+Before encrypted I/O can occur, you must perform the TLS handshake:
+
+=== Client Handshake
+
+[source,cpp]
+----
+auto [ec] = co_await secure.handshake(corosio::wolfssl_stream::client);
+if (ec)
+    std::cerr << "Handshake failed: " << ec.message() << "\n";
+----
+
+=== Server Handshake
+
+[source,cpp]
+----
+auto [ec] = co_await secure.handshake(corosio::wolfssl_stream::server);
+----
+
+=== Handshake Types
+
+[cols="1,2"]
+|===
+| Type | Description
+
+| `client`
+| Perform TLS handshake as the connecting client
+
+| `server`
+| Perform TLS handshake as the accepting server
+|===
+
+== Reading and Writing
+
+The `wolfssl_stream` inherits from `io_stream`, providing the same interface
+as `socket`:
+
+[source,cpp]
+----
+// Read encrypted data
+char buf[1024];
+auto [ec, n] = co_await secure.read_some(
+    capy::mutable_buffer(buf, sizeof(buf)));
+
+// Write encrypted data
+std::string msg = "Hello, TLS!";
+auto [wec, wn] = co_await secure.write_some(
+    capy::const_buffer(msg.data(), msg.size()));
+----
+
+=== Composed Operations
+
+The free functions `read()` and `write()` work with `wolfssl_stream`:
+
+[source,cpp]
+----
+// Read until buffer full
+auto [ec, n] = co_await corosio::read(secure, large_buffer);
+
+// Write all data
+auto [wec, wn] = co_await corosio::write(secure, data_buffer);
+----
+
+== Polymorphic Use
+
+Because `wolfssl_stream` inherits from `io_stream`, you can write code that
+works with both encrypted and unencrypted streams:
+
+[source,cpp]
+----
+capy::task<void> send_request(corosio::io_stream& stream)
+{
+    std::string request = "GET / HTTP/1.1\r\n\r\n";
+    (co_await corosio::write(
+        stream, capy::const_buffer(request.data(), request.size()))).value();
+
+    std::string response;
+    co_await corosio::read(stream, response);
+
+    std::cout << response << "\n";
+}
+
+// Works with plain socket
+corosio::socket sock(ioc);
+co_await send_request(sock);
+
+// Also works with TLS stream
+corosio::wolfssl_stream secure(sock);
+co_await send_request(secure);
+----
+
+== HTTPS Client Example
+
+[source,cpp]
+----
+capy::task<void> https_get(
+    corosio::io_context& ioc,
+    boost::urls::ipv4_address addr,
+    std::uint16_t port,
+    std::string_view hostname)
+{
+    // Connect TCP socket
+    corosio::socket sock(ioc);
+    sock.open();
+    (co_await sock.connect(corosio::endpoint(addr, port))).value();
+
+    // Wrap in TLS and handshake
+    corosio::wolfssl_stream secure(sock);
+    (co_await secure.handshake(corosio::wolfssl_stream::client)).value();
+
+    // Send HTTP request
+    std::string request =
+        "GET / HTTP/1.1\r\n"
+        "Host: " + std::string(hostname) + "\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+
+    (co_await corosio::write(
+        secure, capy::const_buffer(request.data(), request.size()))).value();
+
+    // Read response
+    std::string response;
+    auto [ec, n] = co_await corosio::read(secure, response);
+
+    // EOF is expected when server closes connection
+    if (ec && ec != capy::error::eof)
+        throw boost::system::system_error(ec);
+
+    std::cout << response << "\n";
+}
+----
+
+== Error Handling
+
+TLS operations can fail with SSL-specific errors in addition to normal
+I/O errors:
+
+[source,cpp]
+----
+auto [ec] = co_await secure.handshake(corosio::wolfssl_stream::client);
+if (ec)
+{
+    // Could be SSL error (certificate, protocol, etc.)
+    // or I/O error (connection reset, timeout, etc.)
+    std::cerr << "TLS error: " << ec.message() << "\n";
+}
+----
+
+Common TLS errors include:
+
+* Certificate validation failure
+* Protocol version mismatch
+* Cipher suite negotiation failure
+* Connection closed during handshake
+
+== Cancellation
+
+TLS operations support cancellation:
+
+[source,cpp]
+----
+auto [ec] = co_await secure.handshake(corosio::wolfssl_stream::client);
+if (ec == make_error_code(system::errc::operation_canceled))
+    std::cout << "Handshake cancelled\n";
+----
+
+Stop token cancellation also works through the affine protocol.
+
+== Building with WolfSSL
+
+To use `wolfssl_stream`, you must link against WolfSSL:
+
+[source,cmake]
+----
+find_package(WolfSSL REQUIRED)
+target_link_libraries(my_target PRIVATE WolfSSL::WolfSSL)
+----
+
+The `cmake/FindWolfSSL.cmake` module is provided in the Corosio distribution.
+
+== Thread Safety
+
+[cols="1,2"]
+|===
+| Operation | Thread Safety
+
+| Distinct streams
+| Safe from different threads
+
+| Same stream
+| NOT safe for concurrent operations
+|===
+
+Don't perform concurrent read, write, or handshake operations on the same
+`wolfssl_stream`.
+
+== Limitations
+
+* Server Name Indication (SNI) is not currently exposed
+* Client certificate authentication is not currently exposed
+* Session resumption is not currently exposed
+
+These features may be added in future versions.
+
+== Next Steps
+
+* xref:sockets.adoc[Sockets] — The underlying stream
+* xref:composed-operations.adoc[Composed Operations] — read() and write()
+* xref:../tutorials/http-client.adoc[HTTP Client Tutorial] — HTTPS example

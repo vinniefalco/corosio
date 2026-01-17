@@ -1,10 +1,24 @@
 * xref:index.adoc[Introduction]
 * xref:quick-start.adoc[Quick Start]
-* I/O
-** xref:io/io_context.adoc[I/O Context]
-** xref:io/sockets.adoc[Sockets]
+* Tutorials
+** xref:tutorials/echo-server.adoc[Echo Server]
+** xref:tutorials/http-client.adoc[HTTP Client]
+** xref:tutorials/dns-lookup.adoc[DNS Lookup]
+* Guide
+** xref:guide/io-context.adoc[I/O Context]
+** xref:guide/sockets.adoc[Sockets]
+** xref:guide/endpoints.adoc[Endpoints]
+** xref:guide/composed-operations.adoc[Composed Operations]
+** xref:guide/timers.adoc[Timers]
+** xref:guide/signals.adoc[Signal Handling]
+** xref:guide/resolver.adoc[Name Resolution]
+** xref:guide/tls.adoc[TLS Encryption]
+** xref:guide/error-handling.adoc[Error Handling]
+** xref:guide/buffers.adoc[Buffer Sequences]
 * Concepts
 ** xref:concepts/affine-awaitables.adoc[Affine Awaitables]
-** xref:concepts/buffers.adoc[Buffer Sequences]
 * Reference
 ** xref:reference/design-rationale.adoc[Design Rationale]
+** xref:reference/glossary.adoc[Glossary]
+* Testing
+** xref:testing/mocket.adoc[Mock Sockets]
