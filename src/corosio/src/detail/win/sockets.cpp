@@ -17,6 +17,38 @@ namespace boost {
 namespace corosio {
 namespace detail {
 
+completion_key::result
+win_sockets::overlapped_key::
+on_completion(
+    win_scheduler& sched,
+    DWORD bytes,
+    DWORD error,
+    LPOVERLAPPED overlapped)
+{
+    auto* op = static_cast<overlapped_op*>(overlapped);
+    if (::InterlockedCompareExchange(&op->ready_, 1, 0) == 0)
+    {
+        struct work_guard
+        {
+            win_scheduler* self;
+            ~work_guard() { self->on_work_finished(); }
+        };
+
+        work_guard g{&sched};
+        op->complete(bytes, error);
+        (*op)();
+        return result::did_work;
+    }
+    return result::continue_loop;
+}
+
+void
+win_sockets::overlapped_key::
+destroy(LPOVERLAPPED overlapped)
+{
+    static_cast<overlapped_op*>(overlapped)->destroy();
+}
+
 void
 accept_op::
 operator()()
@@ -442,7 +474,7 @@ open_socket(win_socket_impl& impl)
     HANDLE result = ::CreateIoCompletionPort(
         reinterpret_cast<HANDLE>(sock),
         static_cast<HANDLE>(iocp_),
-        overlapped_key,
+        reinterpret_cast<ULONG_PTR>(&overlapped_key_),
         0);
 
     if (result == nullptr)
@@ -582,11 +614,10 @@ open_acceptor(
     ::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
         reinterpret_cast<char*>(&reuse), sizeof(reuse));
 
-    // Register with IOCP
     HANDLE result = ::CreateIoCompletionPort(
         reinterpret_cast<HANDLE>(sock),
         static_cast<HANDLE>(iocp_),
-        overlapped_key,
+        reinterpret_cast<ULONG_PTR>(&overlapped_key_),
         0);
 
     if (result == nullptr)
@@ -628,10 +659,6 @@ open_acceptor(
     impl.socket_ = sock;
     return {};
 }
-
-//------------------------------------------------------------------------------
-// win_acceptor_impl
-//------------------------------------------------------------------------------
 
 win_acceptor_impl::
 win_acceptor_impl(win_sockets& svc) noexcept
@@ -684,11 +711,10 @@ accept(
         return;
     }
 
-    // Register accepted socket with IOCP
     HANDLE result = ::CreateIoCompletionPort(
         reinterpret_cast<HANDLE>(accepted),
         svc_.native_handle(),
-        overlapped_key,
+        reinterpret_cast<ULONG_PTR>(svc_.io_key()),
         0);
 
     if (result == nullptr)

@@ -16,16 +16,11 @@ namespace boost {
 namespace corosio {
 namespace detail {
 
-// Timer wakeup using NtAssociateWaitCompletionPacket (Windows 8+).
-// Only sees void* iocp and long* dispatch_required.
 class win_timers_nt final : public win_timers
 {
     void* iocp_;
-    long* dispatch_required_;
     void* waitable_timer_ = nullptr;
     void* wait_packet_ = nullptr;
-
-    // Dynamically loaded NT API function pointers
     void* nt_create_wait_completion_packet_;
     void* nt_associate_wait_completion_packet_;
     void* nt_cancel_wait_completion_packet_;

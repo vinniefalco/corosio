@@ -17,12 +17,9 @@ namespace boost {
 namespace corosio {
 namespace detail {
 
-// Timer wakeup using a dedicated thread with a Windows waitable timer.
-// Only sees void* iocp and long* dispatch_required.
 class win_timers_thread final : public win_timers
 {
     void* iocp_;
-    long* dispatch_required_;
     void* waitable_timer_ = nullptr;
     std::thread thread_;
     long shutdown_ = 0;

@@ -10,32 +10,50 @@
 #ifndef BOOST_COROSIO_DETAIL_WIN_TIMERS_HPP
 #define BOOST_COROSIO_DETAIL_WIN_TIMERS_HPP
 
+#include "src/detail/win/completion_key.hpp"
+
 #include <chrono>
-#include <cstdint>
 #include <memory>
 
 namespace boost {
 namespace corosio {
 namespace detail {
 
-// Completion key posted when timer wakeup fires
-constexpr std::uintptr_t timer_key = 3;
+/** Abstract interface for timer wakeup mechanisms.
 
-// Abstract interface for timer wakeup mechanisms.
-// Implementations only receive void* iocp and long* dispatch_required.
-class win_timers
+    Derives from completion_key so the timer object itself serves
+    as the IOCP completion key when posting wakeups.
+*/
+class win_timers : public completion_key
 {
+protected:
+    long* dispatch_required_;
+
 public:
     using time_point = std::chrono::steady_clock::time_point;
+
+    explicit win_timers(long* dispatch_required) noexcept
+        : dispatch_required_(dispatch_required)
+    {
+    }
 
     virtual ~win_timers() = default;
 
     virtual void start() = 0;
     virtual void stop() = 0;
     virtual void update_timeout(time_point next_expiry) = 0;
+
+    result on_completion(
+        win_scheduler&,
+        DWORD,
+        DWORD,
+        LPOVERLAPPED) override
+    {
+        ::InterlockedExchange(dispatch_required_, 1);
+        return result::continue_loop;
+    }
 };
 
-// Factory - tries NT native first, falls back to thread
 std::unique_ptr<win_timers> make_win_timers(
     void* iocp, long* dispatch_required);
 

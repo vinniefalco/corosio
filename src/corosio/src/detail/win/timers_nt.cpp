@@ -46,8 +46,8 @@ win_timers_nt(
     void* nt_create,
     void* nt_assoc,
     void* nt_cancel)
-    : iocp_(iocp)
-    , dispatch_required_(dispatch_required)
+    : win_timers(dispatch_required)
+    , iocp_(iocp)
     , nt_create_wait_completion_packet_(nt_create)
     , nt_associate_wait_completion_packet_(nt_assoc)
     , nt_cancel_wait_completion_packet_(nt_cancel)
@@ -177,17 +177,14 @@ associate_timer()
         wait_packet_,
         iocp_,
         waitable_timer_,
-        reinterpret_cast<void*>(timer_key),  // KeyContext
-        nullptr,                              // ApcContext
-        STATUS_SUCCESS,                       // IoStatus
-        0,                                    // IoStatusInformation
+        this,
+        nullptr,
+        STATUS_SUCCESS,
+        0,
         &already_signaled);
 
     if (status == STATUS_SUCCESS && already_signaled)
-    {
-        // Timer already signaled - post immediately
-        ::PostQueuedCompletionStatus(iocp_, 0, timer_key, nullptr);
-    }
+        repost(iocp_);
 }
 
 } // namespace detail

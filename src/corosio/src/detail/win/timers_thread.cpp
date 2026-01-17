@@ -18,8 +18,8 @@ namespace detail {
 
 win_timers_thread::
 win_timers_thread(void* iocp, long* dispatch_required) noexcept
-    : iocp_(iocp)
-    , dispatch_required_(dispatch_required)
+    : win_timers(dispatch_required)
+    , iocp_(iocp)
 {
     waitable_timer_ = ::CreateWaitableTimerW(nullptr, FALSE, nullptr);
 }
@@ -107,11 +107,8 @@ thread_func()
         if (::InterlockedExchangeAdd(&shutdown_, 0) != 0)
             break;
 
-        // Signal scheduler to process timers
         ::InterlockedExchange(dispatch_required_, 1);
-
-        // Post wakeup to IOCP
-        ::PostQueuedCompletionStatus(iocp_, 0, timer_key, nullptr);
+        repost(iocp_);
     }
 }
 

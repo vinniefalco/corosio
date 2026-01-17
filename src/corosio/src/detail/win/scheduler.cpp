@@ -20,18 +20,16 @@
 #include <limits>
 
 /*
-    ARCHITECTURE NOTE: Difference from Boost.Asio
+    ARCHITECTURE NOTE: Polymorphic Completion Keys
 
-    In Asio, only OVERLAPPED-derived operations go through the completion port.
-    Posted handlers are wrapped in an operation that contains OVERLAPPED.
+    Each subsystem owns a completion_key-derived object whose address serves
+    as the IOCP completion key. When GQCS returns, we cast the key back to
+    completion_key* and dispatch polymorphically via on_completion().
 
-    In corosio, we post BOTH types directly to the completion port:
-      - OVERLAPPED* (overlapped_op) for I/O operations
-      - scheduler_op* for posted handlers/coroutines
-
-    Discrimination is done via the completion key:
-      - handler_key (1): the LPOVERLAPPED is actually a scheduler_op*
-      - overlapped_key (2): the LPOVERLAPPED is an overlapped_op*
+    Key ownership:
+      - win_scheduler owns handler_key_ and shutdown_key_
+      - win_sockets owns overlapped_key_
+      - win_timers IS a completion_key (derives from it)
 
     The op_queue (intrusive_list<scheduler_op>) holds MIXED elements:
       - Plain handlers (coro_work, etc.)
@@ -87,6 +85,50 @@ struct thread_context_guard
 };
 
 } // namespace
+
+completion_key::result
+win_scheduler::handler_key::
+on_completion(
+    win_scheduler& sched,
+    DWORD,
+    DWORD,
+    LPOVERLAPPED overlapped)
+{
+    struct work_guard
+    {
+        win_scheduler* self;
+        ~work_guard() { self->on_work_finished(); }
+    };
+
+    work_guard g{&sched};
+    (*reinterpret_cast<scheduler_op*>(overlapped))();
+    return result::did_work;
+}
+
+void
+win_scheduler::handler_key::
+destroy(LPOVERLAPPED overlapped)
+{
+    reinterpret_cast<scheduler_op*>(overlapped)->destroy();
+}
+
+completion_key::result
+win_scheduler::shutdown_key::
+on_completion(
+    win_scheduler& sched,
+    DWORD,
+    DWORD,
+    LPOVERLAPPED)
+{
+    ::InterlockedExchange(&sched.stop_event_posted_, 0);
+    if (sched.stopped())
+    {
+        if (::InterlockedExchange(&sched.stop_event_posted_, 1) == 0)
+            repost(sched.iocp_);
+        return result::stop_loop;
+    }
+    return result::continue_loop;
+}
 
 win_scheduler::
 win_scheduler(
@@ -154,19 +196,10 @@ shutdown()
         ULONG_PTR key;
         LPOVERLAPPED overlapped;
         ::GetQueuedCompletionStatus(iocp_, &bytes, &key, &overlapped, 0);
-        if (overlapped)
+        if (overlapped && key != 0)
         {
             ::InterlockedDecrement(&outstanding_work_);
-            if (key == handler_key)
-            {
-                // Posted handlers (coro_work, etc.)
-                reinterpret_cast<scheduler_op*>(overlapped)->destroy();
-            }
-            else if (key == overlapped_key)
-            {
-                // I/O operations
-                static_cast<overlapped_op*>(overlapped)->destroy();
-            }
+            reinterpret_cast<completion_key*>(key)->destroy(overlapped);
         }
     }
 }
@@ -205,7 +238,8 @@ post(capy::any_coro h) const
     auto* ph = new post_handler(h);
     ::InterlockedIncrement(&outstanding_work_);
 
-    if (!::PostQueuedCompletionStatus(iocp_, 0, handler_key,
+    if (!::PostQueuedCompletionStatus(iocp_, 0,
+            reinterpret_cast<ULONG_PTR>(&handler_key_),
             reinterpret_cast<LPOVERLAPPED>(ph)))
     {
         // PQCS can fail if non-paged pool exhausted; queue for later
@@ -225,7 +259,8 @@ post(scheduler_op* h) const
 
     ::InterlockedIncrement(&outstanding_work_);
 
-    if (!::PostQueuedCompletionStatus(iocp_, 0, handler_key,
+    if (!::PostQueuedCompletionStatus(iocp_, 0,
+            reinterpret_cast<ULONG_PTR>(&handler_key_),
             reinterpret_cast<LPOVERLAPPED>(h)))
     {
         // PQCS can fail if non-paged pool exhausted; queue for later
@@ -286,7 +321,9 @@ stop()
         if (::InterlockedExchange(&stop_event_posted_, 1) == 0)
         {
             if (!::PostQueuedCompletionStatus(
-                iocp_, 0, shutdown_key, nullptr))
+                iocp_, 0,
+                reinterpret_cast<ULONG_PTR>(&shutdown_key_),
+                nullptr))
             {
                 DWORD last_error = ::GetLastError();
                 detail::throw_system_error(system::error_code(
@@ -401,22 +438,17 @@ post_deferred_completions(
 {
     while(auto h = ops.pop())
     {
+        // Mark ready for overlapped_ops
         if(auto op = get_overlapped_op(h))
-        {
             op->ready_ = 1;
-            if(::PostQueuedCompletionStatus(
-                    iocp_, 0, overlapped_key, op))
-                continue;
-        }
-        else
-        {
-            if(::PostQueuedCompletionStatus(
-                iocp_, 0, handler_key,
-                    reinterpret_cast<LPOVERLAPPED>(h)))
-                continue;
-        }
 
-        // out of resources again, put stuff back
+        if(::PostQueuedCompletionStatus(
+                iocp_, 0,
+                reinterpret_cast<ULONG_PTR>(&handler_key_),
+                reinterpret_cast<LPOVERLAPPED>(h)))
+            continue;
+
+        // Out of resources again, put stuff back
         std::lock_guard<win_mutex> lock(dispatch_mutex_);
         completed_ops_.push(h);
         completed_ops_.splice(ops);
@@ -424,28 +456,17 @@ post_deferred_completions(
     }
 }
 
-// RAII guard - work_finished called even if handler throws
-struct work_guard
-{
-    win_scheduler* self;
-    ~work_guard() { self->on_work_finished(); }
-};
-
-// Execute exactly ONE handler, return 0 or 1
-// THROWS on system errors - no error_code
 std::size_t
 win_scheduler::
 do_one(unsigned long timeout_ms)
 {
     for (;;)
     {
-        // Drain fallback queue and process timers if needed
         if (::InterlockedCompareExchange(&dispatch_required_, 0, 1) == 1)
         {
             std::lock_guard<win_mutex> lock(dispatch_mutex_);
             post_deferred_completions(completed_ops_);
 
-            // Process expired timers
             if (timer_svc_)
                 timer_svc_->process_expired();
 
@@ -462,60 +483,28 @@ do_one(unsigned long timeout_ms)
             timeout_ms < max_gqcs_timeout ? timeout_ms : max_gqcs_timeout);
         DWORD last_error = ::GetLastError();
 
-        if (overlapped)
+        if (overlapped || (result && key != 0))
         {
-            if (key == handler_key)
-            {
-                // scheduler_op*
-                work_guard g{this};
-                (*reinterpret_cast<scheduler_op*>(overlapped))();
+            auto* target = reinterpret_cast<completion_key*>(key);
+            DWORD err = result ? 0 : last_error;
+            auto r = target->on_completion(*this, bytes, err, overlapped);
+
+            if (r == completion_key::result::did_work)
                 return 1;
-            }
-            else if (key == overlapped_key)
-            {
-                // overlapped_op*
-                auto* op = static_cast<overlapped_op*>(overlapped);
-                if (::InterlockedCompareExchange(&op->ready_, 1, 0) == 0)
-                {
-                    work_guard g{this};
-                    DWORD err = result ? 0 : last_error;
-                    op->complete(bytes, err);
-                    (*op)();
-                    return 1;
-                }
-                // Not ready - loop to get next completion
-            }
-            else if (key == timer_key)
-            {
-                // Timer fired - set flag to process expired timers
-                ::InterlockedExchange(&dispatch_required_, 1);
-                continue;
-            }
+            if (r == completion_key::result::stop_loop)
+                return 0;
+            continue;
         }
-        else if (!result)
+
+        if (!result)
         {
             if (last_error != WAIT_TIMEOUT)
             {
-                // THROW directly - no error_code
                 detail::throw_system_error(system::error_code(
                     static_cast<int>(last_error), system::system_category()));
             }
-            // Timeout - break if finite, continue if INFINITE (capped timeout)
             if (timeout_ms != INFINITE)
                 return 0;
-        }
-        else if (key == shutdown_key)
-        {
-            ::InterlockedExchange(&stop_event_posted_, 0);
-            if (stopped())
-            {
-                if (::InterlockedExchange(&stop_event_posted_, 1) == 0)
-                    ::PostQueuedCompletionStatus(iocp_, 0, shutdown_key, nullptr);
-                return 0;
-            }
-            // Not stopped (restarted) - continue immediately without
-            // checking timeout, since shutdown_key doesn't count as work
-            continue;
         }
     }
 }

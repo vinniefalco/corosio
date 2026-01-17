@@ -19,6 +19,7 @@
 #include <boost/capy/core/intrusive_list.hpp>
 
 #include "src/detail/windows.hpp"
+#include "src/detail/win/completion_key.hpp"
 #include "src/detail/win/overlapped_op.hpp"
 #include "src/detail/win/mutex.hpp"
 #include "src/detail/win/wsa_init.hpp"
@@ -264,6 +265,9 @@ public:
     /** Return the IOCP handle. */
     void* native_handle() const noexcept { return iocp_; }
 
+    /** Return the completion key for associating sockets with IOCP. */
+    completion_key* io_key() noexcept { return &overlapped_key_; }
+
     /** Return the ConnectEx function pointer. */
     LPFN_CONNECTEX connect_ex() const noexcept { return connect_ex_; }
 
@@ -280,9 +284,21 @@ public:
     void work_finished() noexcept;
 
 private:
+    struct overlapped_key final : completion_key
+    {
+        result on_completion(
+            win_scheduler& sched,
+            DWORD bytes,
+            DWORD error,
+            LPOVERLAPPED overlapped) override;
+
+        void destroy(LPOVERLAPPED overlapped) override;
+    };
+
     void load_extension_functions();
 
     win_scheduler& sched_;
+    overlapped_key overlapped_key_;
     win_mutex mutex_;
     capy::intrusive_list<win_socket_impl> socket_list_;
     capy::intrusive_list<win_acceptor_impl> acceptor_list_;

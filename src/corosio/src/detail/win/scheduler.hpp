@@ -16,6 +16,7 @@
 #include <boost/system/error_code.hpp>
 
 #include "src/detail/scheduler_op.hpp"
+#include "src/detail/win/completion_key.hpp"
 #include "src/detail/win/mutex.hpp"
 
 #include <chrono>
@@ -27,11 +28,6 @@
 namespace boost {
 namespace corosio {
 namespace detail {
-
-// IOCP completion keys
-constexpr std::uintptr_t shutdown_key = 0;
-constexpr std::uintptr_t handler_key = 1;
-constexpr std::uintptr_t overlapped_key = 2;
 
 // Forward declarations
 struct overlapped_op;
@@ -78,6 +74,28 @@ public:
     void update_timeout();
 
 private:
+    // Completion key for posted handlers (scheduler_op*)
+    struct handler_key final : completion_key
+    {
+        result on_completion(
+            win_scheduler& sched,
+            DWORD bytes,
+            DWORD error,
+            LPOVERLAPPED overlapped) override;
+
+        void destroy(LPOVERLAPPED overlapped) override;
+    };
+
+    // Completion key for stop signaling
+    struct shutdown_key final : completion_key
+    {
+        result on_completion(
+            win_scheduler& sched,
+            DWORD bytes,
+            DWORD error,
+            LPOVERLAPPED overlapped) override;
+    };
+
     // Static callback thunk - receives 'this' as context
     static void on_timer_changed(void* ctx);
     void post_deferred_completions(op_queue& ops);
@@ -93,6 +111,9 @@ private:
 
     // Signals do_run() to drain completed_ops_ fallback queue
     mutable long dispatch_required_;
+
+    handler_key handler_key_;
+    shutdown_key shutdown_key_;
 
     mutable win_mutex dispatch_mutex_;                                      // protects completed_ops_
     mutable op_queue completed_ops_;                                       // fallback when PQCS fails (no auto-destroy)
