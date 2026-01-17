@@ -53,7 +53,7 @@ struct completion_key
 
         @param overlapped The OVERLAPPED pointer to destroy.
     */
-    virtual void destroy(LPOVERLAPPED overlapped) {}
+    virtual void destroy(LPOVERLAPPED /*overlapped*/) {}
 
     /** Re-queue this key to the IOCP.
 
