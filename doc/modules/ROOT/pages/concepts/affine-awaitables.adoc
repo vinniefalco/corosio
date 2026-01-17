@@ -62,11 +62,11 @@ executor.
 
 == How Affinity Propagates
 
-When you launch a coroutine with `async_run`:
+When you launch a coroutine with `run_async`:
 
 [source,cpp]
 ----
-capy::async_run(ioc.get_executor())(my_task(socket));
+capy::run_async(ioc.get_executor())(my_task(socket));
 ----
 
 The executor becomes the coroutine's dispatcher. When `my_task` awaits
@@ -80,7 +80,7 @@ sequenceDiagram
     participant Socket as s.read_some()
     participant IOCP
 
-    Main->>Task: async_run(ex)(my_task)
+    Main->>Task: run_async(ex)(my_task)
     Task->>Socket: co_await read_some()
     Note over Socket: Stores ex as dispatcher
     Socket->>IOCP: Submit read

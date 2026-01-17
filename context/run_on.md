@@ -53,7 +53,7 @@ run_on_awaitable<T, E> run_on(E ex, task<T> t)
 }
 
 template<executor E, typename T>
-void async_run(E ex, task<T> t)
+void run_async(E ex, task<T> t)
 {
     auto* state = new run_on_awaitable<T, E>{std::move(ex), t.release()};
     state->await_suspend_detached().resume();
@@ -87,7 +87,7 @@ void* detached_state_ = nullptr;
 co_await run_on(strand, some_task());
 
 // Non-coroutine caller - heap allocated, self-destructs
-async_run(strand, some_task());
+run_async(strand, some_task());
 ```
 
 ## Key Insight

@@ -249,7 +249,7 @@ The implementation includes:
 - **`task<T>`** — A coroutine task type implementing the affine awaitable protocol
 - **`make_affine`** — A trampoline wrapper for legacy awaitables that don't implement the protocol
 - **`any_dispatcher`** — A type-erased dispatcher for runtime polymorphism
-- **`async_run`** — Entry point for launching detached tasks with a dispatcher
+- **`run_async`** — Entry point for launching detached tasks with a dispatcher
 - **`run_on`** — Binds a task to execute on a specific dispatcher
 
 ---

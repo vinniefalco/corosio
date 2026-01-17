@@ -10,7 +10,7 @@
 #include <boost/corosio.hpp>
 #include <boost/corosio/wolfssl_stream.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/ex/async_run.hpp>
+#include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/url/ipv4_address.hpp>
@@ -108,7 +108,7 @@ main(int argc, char* argv[])
     try
     {
         corosio::io_context ioc;
-        capy::async_run(ioc.get_executor())(
+        capy::run_async(ioc.get_executor())(
             run_client(ioc, *addr_result, port, hostname));
         ioc.run();
     }

@@ -9,7 +9,7 @@
 
 #include <boost/corosio.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/ex/async_run.hpp>
+#include <boost/capy/ex/run_async.hpp>
 
 #include <cstdlib>
 #include <iostream>
@@ -75,7 +75,7 @@ main(int argc, char* argv[])
     std::string_view service = (argc == 3) ? argv[2] : "";
 
     corosio::io_context ioc;
-    capy::async_run(ioc.get_executor())(
+    capy::run_async(ioc.get_executor())(
         do_lookup(ioc, host, service));
     ioc.run();
 

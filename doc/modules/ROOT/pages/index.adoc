@@ -74,7 +74,7 @@ compared to actual I/O latency.
 ----
 #include <boost/corosio.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/ex/async_run.hpp>
+#include <boost/capy/ex/run_async.hpp>
 #include <iostream>
 
 namespace corosio = boost::corosio;
@@ -107,7 +107,7 @@ capy::task<void> connect_and_read(corosio::io_context& ioc)
 int main()
 {
     corosio::io_context ioc;
-    capy::async_run(ioc.get_executor())(connect_and_read(ioc));
+    capy::run_async(ioc.get_executor())(connect_and_read(ioc));
     ioc.run();
 }
 ----

@@ -8,9 +8,9 @@ Great question. Let me map out the I/O patterns and see what actually requires e
 eager_on(ex, handle_connection(sock));
 
 // Lazy equivalent:
-async_run(ex, handle_connection(sock));
+run_async(ex, handle_connection(sock));
 ```
-**Verdict: ✓ Lazy works.** `async_run` is fire-and-forget by design.
+**Verdict: ✓ Lazy works.** `run_async` is fire-and-forget by design.
 
 ---
 
@@ -89,7 +89,7 @@ stop_source shutdown;
 while (accepting) {
     auto sock = co_await listener.accept();
     ++active_count;
-    async_run(ex, [&]() -> task<> {
+    run_async(ex, [&]() -> task<> {
         co_await handle(sock, shutdown.get_token());
         --active_count;
     }());
@@ -123,7 +123,7 @@ auto result = co_await computation; // get result
 
 | Pattern | Eager Needed? | Lazy Alternative |
 |---------|---------------|------------------|
-| Fire-and-forget handlers | No | `async_run` |
+| Fire-and-forget handlers | No | `run_async` |
 | Fixed concurrent fan-out | No | `when_all` |
 | Dynamic concurrent fan-out | No | `when_all(range)` |
 | Timeout / race | No | `when_any` |
@@ -150,6 +150,6 @@ auto [result, _] = co_await when_any(
 
 ## Recommendation
 
-For a **minimal I/O library**, lazy tasks + combinators + `async_run` is sufficient. The remaining gap (Pattern F) is niche and can be filled by users bringing their own future type if needed.
+For a **minimal I/O library**, lazy tasks + combinators + `run_async` is sufficient. The remaining gap (Pattern F) is niche and can be filled by users bringing their own future type if needed.
 
 Eager tasks are a "task library" concern, not an "I/O library" concern. The I/O primitives don't care whether the task awaiting them is eager or lazy.

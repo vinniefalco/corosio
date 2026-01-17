@@ -9,7 +9,7 @@
 
 #include <boost/corosio/wolfssl_stream.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
-#include <boost/capy/ex/async_run.hpp>
+#include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/task.hpp>
 
@@ -592,8 +592,8 @@ struct wolfssl_stream_impl_
         buffer_array bufs{};
         std::size_t count = param.copy_to(bufs.data(), max_buffers);
 
-        // Launch inner coroutine via async_run
-        capy::async_run(d)(
+        // Launch inner coroutine via run_async
+        capy::run_async(d)(
             do_read_some(bufs, count, token, ec, bytes, h, d));
     }
 
@@ -610,8 +610,8 @@ struct wolfssl_stream_impl_
         buffer_array bufs{};
         std::size_t count = param.copy_to(bufs.data(), max_buffers);
 
-        // Launch inner coroutine via async_run
-        capy::async_run(d)(
+        // Launch inner coroutine via run_async
+        capy::run_async(d)(
             do_write_some(bufs, count, token, ec, bytes, h, d));
     }
 
@@ -622,8 +622,8 @@ struct wolfssl_stream_impl_
         std::stop_token token,
         system::error_code* ec) override
     {
-        // Launch inner coroutine via async_run
-        capy::async_run(d)(
+        // Launch inner coroutine via run_async
+        capy::run_async(d)(
             do_handshake(type, token, ec, h, d));
     }
 

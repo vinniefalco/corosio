@@ -122,7 +122,7 @@ capy::task<void> accept_loop(corosio::io_context& ioc)
         }
 
         // Launch handler for this client
-        capy::async_run(ioc.get_executor())(
+        capy::run_async(ioc.get_executor())(
             handle_client(std::move(client)));
     }
 }
@@ -185,7 +185,7 @@ capy::task<void> accept_loop(corosio::io_context& ioc)
         if (ec)
             break;
 
-        capy::async_run(ioc.get_executor())(
+        capy::run_async(ioc.get_executor())(
             handle_client(std::move(client)));
     }
 

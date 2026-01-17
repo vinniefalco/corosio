@@ -44,7 +44,7 @@ namespace corosio {
     @code
     io_context ioc;
     auto ex = ioc.get_executor();
-    async_run(ex, my_coroutine());
+    run_async(ex)(my_coroutine());
     ioc.run();  // Process all queued work
     @endcode
 */

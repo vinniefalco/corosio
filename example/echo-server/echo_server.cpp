@@ -10,7 +10,7 @@
 #include <boost/corosio.hpp>
 #include <boost/corosio/acceptor.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/ex/async_run.hpp>
+#include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/error.hpp>
 
@@ -120,7 +120,7 @@ accept_loop(
         }
 
         // Spawn the session coroutine
-        capy::async_run(ioc.get_executor())(run_session(*free_worker));
+        capy::run_async(ioc.get_executor())(run_session(*free_worker));
     }
 }
 
@@ -170,7 +170,7 @@ main(int argc, char* argv[])
               << " with " << max_workers << " workers\n";
 
     // Start the accept loop
-    capy::async_run(ioc.get_executor())(accept_loop(ioc, acc, workers));
+    capy::run_async(ioc.get_executor())(accept_loop(ioc, acc, workers));
 
     // Run the event loop
     ioc.run();

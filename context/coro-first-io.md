@@ -228,7 +228,7 @@ Our coroutine model propagates context forward:
 
 ```cpp
 // Coroutine-first: context flows from caller to callee
-async_run(my_executor, my_task());  // Executor injected at root
+run_async(my_executor, my_task());  // Executor injected at root
 // await_transform propagates any_executor const& to all children — no queries needed
 ```
 
@@ -352,10 +352,10 @@ struct strand {
 
 // Full type information at the call site
 strand<pool_executor> s{pool.get_executor()};
-async_run(s, my_task());  // strand<pool_executor> passed by value
+run_async(s, my_task());  // strand<pool_executor> passed by value
 ```
 
-When `async_run` stores the executor in the root task's frame, it preserves the complete type. The `strand` wrapper's serialization logic remains inlinable. Only when the executor propagates to child tasks—as `any_executor const*`—does type erasure occur. The erasure boundary is pushed to where it matters least: internal propagation rather than the hot dispatch path.
+When `run_async` stores the executor in the root task's frame, it preserves the complete type. The `strand` wrapper's serialization logic remains inlinable. Only when the executor propagates to child tasks—as `any_executor const*`—does type erasure occur. The erasure boundary is pushed to where it matters least: internal propagation rather than the hot dispatch path.
 
 **Why executor customization matters—even single-threaded:**
 
@@ -381,7 +381,7 @@ The `executor` concept and `any_executor` base class support all these patterns 
 
 Traditional callback-based designs often embed the executor in the I/O object's type, creating signatures like `basic_socket<Protocol, Executor>`. This leaks concurrency policy into type identity—two sockets with different executors have different types, complicating containers and APIs.
 
-Coroutines invert this relationship. The executor enters at `async_run` or `run_on`, propagates invisibly through `any_executor const&`, and reaches I/O operations via the affine awaitable protocol's `await_transform`. The I/O object participates in executor selection without encoding it in its type:
+Coroutines invert this relationship. The executor enters at `run_async` or `run_on`, propagates invisibly through `any_executor const&`, and reaches I/O operations via the affine awaitable protocol's `await_transform`. The I/O object participates in executor selection without encoding it in its type:
 
 ```cpp
 // Traditional: executor embedded in socket type
@@ -389,7 +389,7 @@ basic_socket<tcp, strand<pool_executor>> sock;
 
 // Coroutine model: executor supplied at launch
 socket sock;  // No executor type parameter
-async_run(strand{pool.get_executor()}, use_socket(sock));
+run_async(strand{pool.get_executor()}, use_socket(sock));
 ```
 
 The socket receives its executor indirectly—through the coroutine machinery—yet still benefits from the caller's choice of strand wrapping, thread pool, or any other executor composition.
@@ -721,13 +721,13 @@ co_await run_on(high_priority_executor, send_control_message());
 
 These patterns work identically whether the underlying context is single-threaded or multi-threaded—the executor abstraction is about policy, not just parallelism.
 
-### 6.2 Root Ownership: `async_run`
+### 6.2 Root Ownership: `run_async`
 
 Top-level coroutines present a lifetime challenge: the executor must outlive all operations, but the coroutine owns only references. We solve this with a wrapper coroutine that *owns* the executor:
 
 ```cpp
 template<class Executor>
-struct async_run_task
+struct run_async_task
 {
     struct starter : work { /* embedded in promise */ };
     
@@ -741,19 +741,19 @@ struct async_run_task
 };
 
 template<class Executor>
-void async_run(Executor ex, task t)
+void run_async(Executor ex, task t)
 {
     auto root = wrapper<Executor>(std::move(t));
     root.h_.promise().ex_ = std::move(ex);
     
-    // Post embedded starter—avoids allocation since async_run_task is long-lived
+    // Post embedded starter—avoids allocation since run_async_task is long-lived
     root.h_.promise().start_.h_ = root.h_;
     root.h_.promise().ex_.post(&root.h_.promise().start_);
     root.release();
 }
 ```
 
-The `async_run_task` frame lives on the heap and contains the executor by value. All child tasks receive `any_executor const&` referencing this frame-owned executor. The frame self-destructs at `final_suspend`, after all children have completed.
+The `run_async_task` frame lives on the heap and contains the executor by value. All child tasks receive `any_executor const&` referencing this frame-owned executor. The frame self-destructs at `final_suspend`, after all children have completed.
 
 This design provides two key benefits: **cheap type-erasure** (child tasks store only `any_executor const*`, not the concrete executor type) and **automatic lifetime management** (the executor lives exactly as long as the operation tree it serves).
 

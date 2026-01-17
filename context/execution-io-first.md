@@ -229,7 +229,7 @@ Our coroutine model propagates context forward:
 
 ```cpp
 // Coroutine-first: context flows from caller to callee
-async_run(my_executor, my_task());  // Executor injected at root
+run_async(my_executor, my_task());  // Executor injected at root
 // await_transform propagates any_executor const& to all children — no queries needed
 ```
 
@@ -669,10 +669,10 @@ struct strand {
 
 // Full type information at the call site
 strand<pool_executor> s{pool.get_executor()};
-async_run(s, my_task());  // strand<pool_executor> passed by value
+run_async(s, my_task());  // strand<pool_executor> passed by value
 ```
 
-When `async_run` stores the executor in the root task's frame, it preserves the complete type. The `strand` wrapper's serialization logic remains inlinable. Only when the executor propagates to child tasks—as `executor_base const&`—does type erasure occur.
+When `run_async` stores the executor in the root task's frame, it preserves the complete type. The `strand` wrapper's serialization logic remains inlinable. Only when the executor propagates to child tasks—as `executor_base const&`—does type erasure occur.
 
 **Executors encode policy, not just parallelism.** A single-threaded `io_context` still benefits from executor customization:
 
@@ -682,7 +682,7 @@ When `async_run` stores the executor in the root task's frame, it preserves the 
 - **Prioritization**: Critical control messages can preempt bulk data transfers
 - **Testing**: Manual executors enable deterministic unit tests
 
-**The coroutine advantage.** Traditional callback-based designs embed the executor in the I/O object's type (`basic_socket<Protocol, Executor>`), leaking concurrency policy into type identity. Coroutines invert this: the executor enters at `async_run`, propagates invisibly through `executor_base const*`, and reaches I/O operations via `await_transform`. The I/O object participates in executor selection without encoding it in its type:
+**The coroutine advantage.** Traditional callback-based designs embed the executor in the I/O object's type (`basic_socket<Protocol, Executor>`), leaking concurrency policy into type identity. Coroutines invert this: the executor enters at `run_async`, propagates invisibly through `executor_base const*`, and reaches I/O operations via `await_transform`. The I/O object participates in executor selection without encoding it in its type:
 
 ```cpp
 // Traditional: executor embedded in socket type
@@ -690,7 +690,7 @@ basic_socket<tcp, strand<pool_executor>> sock;
 
 // Coroutine model: executor supplied at launch
 socket sock;  // No executor type parameter
-async_run(strand{pool.get_executor()}, use_socket(sock));
+run_async(strand{pool.get_executor()}, use_socket(sock));
 ```
 
 ### 6.5 Executor Wrapping Trade-offs
