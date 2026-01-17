@@ -112,7 +112,7 @@ interface for coroutine resumption.
 |===
 |Operation |Behavior
 
-|`dispatch(h)`
+|`operator()(h)`
 |Resume `h` inline if running in this thread, otherwise post
 
 |`post(h)`
@@ -120,9 +120,6 @@ interface for coroutine resumption.
 
 |`defer(h)`
 |Queue `h` as a continuation (optimization hint)
-
-|`operator()(h)`
-|Alias for `dispatch(h)`
 |===
 
 === Symmetric Transfer

@@ -377,22 +377,6 @@ public:
     capy::any_coro
     operator()(capy::any_coro h) const
     {
-        return dispatch(h);
-    }
-
-    /** Dispatch a coroutine handle.
-
-        If called from within `run()`, returns the handle for symmetric
-        transfer. Otherwise posts the handle and returns `noop_coroutine`.
-
-        @param h The coroutine handle to dispatch.
-
-        @return The handle for symmetric transfer, or `noop_coroutine`
-            if the handle was posted.
-    */
-    capy::any_coro
-    dispatch(capy::any_coro h) const
-    {
         if (running_in_this_thread())
             return h;
         ctx_->sched_.post(h);
