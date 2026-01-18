@@ -40,6 +40,8 @@ protected:
 
 private:
     struct waiter;
+    class push_aw;
+    class pop_aw;
 
     struct launch_wrapper
     {
@@ -116,110 +118,37 @@ private:
         worker_base* w;
     };
 
-    auto push(worker_base& w)
+    class BOOST_COROSIO_DECL push_aw
     {
-        struct awaitable
-        {
-            tcp_server& self_;
-            worker_base& w_;
+        tcp_server& self_;
+        worker_base& w_;
 
-            bool await_ready() const noexcept
-            {
-                return false;
-            }
+    public:
+        push_aw(tcp_server& self, worker_base& w) noexcept;
+        bool await_ready() const noexcept;
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<> h) noexcept;
+        void await_resume() noexcept;
+    };
 
-            // Dispatch to server's executor before touching shared state
-            std::coroutine_handle<>
-            await_suspend(std::coroutine_handle<> h) noexcept
-            {
-                return self_.dispatch_.dispatch(h);
-            }
+    push_aw push(worker_base& w);
 
-            void await_resume() noexcept
-            {
-                if(self_.waiters_)
-                {
-                    auto* wait = self_.waiters_;
-                    self_.waiters_ = wait->next;
-                    wait->w = &w_;
-                    self_.post_.post(wait->h);
-                }
-                else
-                {
-                    self_.wv_.push(w_);
-                }
-            }
-        };
+    void push_sync(worker_base& w) noexcept;
 
-        return awaitable{*this, w};
-    }
-
-    void push_sync(worker_base& w) noexcept
+    class BOOST_COROSIO_DECL pop_aw
     {
-        if(waiters_)
-        {
-            auto* wait = waiters_;
-            waiters_ = wait->next;
-            wait->w = &w;
-            post_.post(wait->h);
-        }
-        else
-        {
-            wv_.push(w);
-        }
-    }
+        tcp_server& self_;
+        waiter wait_;
 
-    auto pop()
-    {
-        struct pop_awaitable
-        {
-            tcp_server& self_;
-            waiter wait_;
+    public:
+        pop_aw(tcp_server& self) noexcept;
+        bool await_ready() const noexcept;
+        bool await_suspend(std::coroutine_handle<> h) noexcept;
+        system::result<worker_base&> await_resume() noexcept;
+    };
 
-            bool await_ready() const noexcept
-            {
-                return self_.wv_.idle_ != nullptr;
-            }
+    pop_aw pop();
 
-            bool await_suspend(std::coroutine_handle<> h) noexcept
-            {
-                wait_.h = h;
-                wait_.w = nullptr;
-                wait_.next = self_.waiters_;
-                self_.waiters_ = &wait_;
-                return true;
-            }
-
-            system::result<worker_base&> await_resume() noexcept
-            {
-                if(wait_.w)
-                    return *wait_.w;
-                return *self_.wv_.try_pop();
-            }
-        };
-
-        return pop_awaitable{*this, {}};
-    }
-
-    capy::task<void>
-    do_accept(acceptor& acc)
-    {
-        auto st = co_await capy::get_stop_token();
-        while(! st.stop_requested())
-        {
-            auto rv = co_await pop();
-            if(rv.has_error())
-                continue;
-            auto& w = rv.value();
-            auto ec = co_await acc.accept(w.sock);
-            if(ec)
-            {
-                co_await push(w);
-                continue;
-            }
-            w.run(launcher{*this, w});
-        }
-    }
+    capy::task<void> do_accept(acceptor& acc);
 
 protected:
     class worker_base
@@ -349,20 +278,9 @@ protected:
     }
 
 public:
-    system::error_code
-    bind(endpoint ep)
-    {
-        ports_.emplace_back(ctx_);
-        // VFALCO this should return error_code
-        ports_.back().listen(ep);
-        return {};
-    }
+    system::error_code bind(endpoint ep);
 
-    void start()
-    {
-        for(auto& t : ports_)
-            capy::run_async(post_)(do_accept(t));
-    }
+    void start();
 };
 
 } // corosio

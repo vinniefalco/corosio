@@ -61,11 +61,11 @@ public:
 
         @param bs The buffer sequence to adapt.
     */
-    template<capy::ConstBufferSequence BufferSequence>
+    template<capy::ConstBufferSequence BS>
     explicit
-    any_bufref(BufferSequence const& bs) noexcept
+    any_bufref(BS const& bs) noexcept
         : bs_(&bs)
-        , fn_(&copy_impl<BufferSequence>)
+        , fn_(&copy_impl<BS>)
     {
     }
 
@@ -85,19 +85,19 @@ public:
     }
 
 private:
-    template<capy::ConstBufferSequence BufferSequence>
+    template<capy::ConstBufferSequence BS>
     static std::size_t
     copy_impl(
         void const* p,
         capy::mutable_buffer* dest,
         std::size_t n)
     {
-        auto const& bs = *static_cast<BufferSequence const*>(p);
+        auto const& bs = *static_cast<BS const*>(p);
         auto it = capy::begin(bs);
         auto const end_it = capy::end(bs);
 
         std::size_t i = 0;
-        if constexpr (capy::MutableBufferSequence<BufferSequence>)
+        if constexpr (capy::MutableBufferSequence<BS>)
         {
             for (; it != end_it && i < n; ++it, ++i)
                 dest[i] = *it;
