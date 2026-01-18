@@ -12,7 +12,9 @@
 namespace boost {
 namespace corosio {
 
-tcp_server::push_aw::push_aw(
+tcp_server::
+push_aw::
+push_aw(
     tcp_server& self,
     worker_base& w) noexcept
     : self_(self)
@@ -21,13 +23,17 @@ tcp_server::push_aw::push_aw(
 }
 
 bool
-tcp_server::push_aw::await_ready() const noexcept
+tcp_server::
+push_aw::
+await_ready() const noexcept
 {
     return false;
 }
 
 std::coroutine_handle<>
-tcp_server::push_aw::await_suspend(
+tcp_server::
+push_aw::
+await_suspend(
     std::coroutine_handle<> h) noexcept
 {
     // Dispatch to server's executor before touching shared state
@@ -35,7 +41,9 @@ tcp_server::push_aw::await_suspend(
 }
 
 void
-tcp_server::push_aw::await_resume() noexcept
+tcp_server::
+push_aw::
+await_resume() noexcept
 {
     if(self_.waiters_)
     {
@@ -50,20 +58,26 @@ tcp_server::push_aw::await_resume() noexcept
     }
 }
 
-tcp_server::pop_aw::pop_aw(tcp_server& self) noexcept
+tcp_server::
+pop_aw::
+pop_aw(tcp_server& self) noexcept
     : self_(self)
     , wait_{}
 {
 }
 
 bool
-tcp_server::pop_aw::await_ready() const noexcept
+tcp_server::
+pop_aw::
+await_ready() const noexcept
 {
     return self_.wv_.idle_ != nullptr;
 }
 
 bool
-tcp_server::pop_aw::await_suspend(
+tcp_server::
+pop_aw::
+await_suspend(
     std::coroutine_handle<> h) noexcept
 {
     wait_.h = h;
@@ -73,22 +87,27 @@ tcp_server::pop_aw::await_suspend(
     return true;
 }
 
-system::result<tcp_server::worker_base&>
-tcp_server::pop_aw::await_resume() noexcept
+auto
+tcp_server::
+pop_aw::
+await_resume() noexcept ->
+    system::result<tcp_server::worker_base&>
 {
     if(wait_.w)
         return *wait_.w;
     return *self_.wv_.try_pop();
 }
 
-tcp_server::push_aw
-tcp_server::push(worker_base& w)
+auto
+tcp_server::
+push(worker_base& w) -> push_aw
 {
     return push_aw{*this, w};
 }
 
 void
-tcp_server::push_sync(worker_base& w) noexcept
+tcp_server::
+push_sync(worker_base& w) noexcept
 {
     if(waiters_)
     {
@@ -119,7 +138,7 @@ tcp_server::do_accept(acceptor& acc)
         if(rv.has_error())
             continue;
         auto& w = rv.value();
-        auto ec = co_await acc.accept(w.sock);
+        auto ec = co_await acc.accept(w.socket());
         if(ec)
         {
             co_await push(w);

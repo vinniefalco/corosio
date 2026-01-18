@@ -33,15 +33,21 @@ namespace corosio {
 class BOOST_COROSIO_DECL
     tcp_server
 {
-protected:
+public:
     class worker_base;
     class launcher;
+
+protected:
     class workers;
 
 private:
     struct waiter;
-    class push_aw;
-    class pop_aw;
+
+    io_context& ctx_;
+    capy::any_executor_ref dispatch_;
+    capy::any_executor_ref post_;
+    waiter* waiters_ = nullptr;
+    std::vector<acceptor> ports_;
 
     struct launch_wrapper
     {
@@ -105,12 +111,6 @@ private:
         launch_wrapper& operator=(launch_wrapper&&) = delete;
     };
 
-    io_context& ctx_;
-    capy::any_executor_ref dispatch_;
-    capy::any_executor_ref post_;
-    waiter* waiters_ = nullptr;
-    std::vector<acceptor> ports_;
-
     struct waiter
     {
         waiter* next;
@@ -130,10 +130,6 @@ private:
         void await_resume() noexcept;
     };
 
-    push_aw push(worker_base& w);
-
-    void push_sync(worker_base& w) noexcept;
-
     class BOOST_COROSIO_DECL pop_aw
     {
         tcp_server& self_;
@@ -146,11 +142,15 @@ private:
         system::result<worker_base&> await_resume() noexcept;
     };
 
+    push_aw push(worker_base& w);
+
+    void push_sync(worker_base& w) noexcept;
+
     pop_aw pop();
 
     capy::task<void> do_accept(acceptor& acc);
 
-protected:
+public:
     class worker_base
     {
         worker_base* next = nullptr;
@@ -163,6 +163,7 @@ protected:
 
         virtual ~worker_base() = default;
         virtual void run(launcher launch) = 0;
+        virtual corosio::socket& socket() = 0;
 
     protected:
         worker_base(capy::execution_context& ctx)
@@ -170,43 +171,6 @@ protected:
         {
         }
     };
-
-    class workers
-    {
-        friend class tcp_server;
-
-        std::vector<std::unique_ptr<worker_base>> v_;
-        worker_base* idle_ = nullptr;
-
-        void push(worker_base& w) noexcept
-        {
-            w.next = idle_;
-            idle_ = &w;
-        }
-
-        worker_base* try_pop() noexcept
-        {
-            auto* w = idle_;
-            idle_ = w->next;
-            return w;
-        }
-
-    public:
-        template<class T, class... Args>
-        T& emplace(Args&&... args)
-        {
-            auto p = std::make_unique<T>(std::forward<Args>(args)...);
-            auto* raw = p.get();
-            v_.push_back(std::move(p));
-            push(*raw);
-            return static_cast<T&>(*raw);
-        }
-
-        void reserve(std::size_t n) { v_.reserve(n); }
-        std::size_t size() const noexcept { return v_.size(); }
-    };
-
-    workers wv_;
 
     class launcher
     {
@@ -265,6 +229,44 @@ protected:
             guard.w = nullptr; // Success - dismiss guard
         }
     };
+
+protected:
+    class workers
+    {
+        friend class tcp_server;
+
+        std::vector<std::unique_ptr<worker_base>> v_;
+        worker_base* idle_ = nullptr;
+
+        void push(worker_base& w) noexcept
+        {
+            w.next = idle_;
+            idle_ = &w;
+        }
+
+        worker_base* try_pop() noexcept
+        {
+            auto* w = idle_;
+            idle_ = w->next;
+            return w;
+        }
+
+    public:
+        template<class T, class... Args>
+        T& emplace(Args&&... args)
+        {
+            auto p = std::make_unique<T>(std::forward<Args>(args)...);
+            auto* raw = p.get();
+            v_.push_back(std::move(p));
+            push(*raw);
+            return static_cast<T&>(*raw);
+        }
+
+        void reserve(std::size_t n) { v_.reserve(n); }
+        std::size_t size() const noexcept { return v_.size(); }
+    };
+
+    workers wv_;
 
 protected:
     template<capy::Executor Ex>
