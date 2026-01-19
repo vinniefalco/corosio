@@ -130,7 +130,7 @@ public:
     void read_some(
         std::coroutine_handle<>,
         capy::any_executor_ref,
-        any_bufref&,
+        capy::any_bufref&,
         std::stop_token,
         system::error_code*,
         std::size_t*) override;
@@ -138,7 +138,7 @@ public:
     void write_some(
         std::coroutine_handle<>,
         capy::any_executor_ref,
-        any_bufref&,
+        capy::any_bufref&,
         std::stop_token,
         system::error_code*,
         std::size_t*) override;
