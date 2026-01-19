@@ -33,11 +33,11 @@ await_ready() const noexcept
 std::coroutine_handle<>
 tcp_server::
 push_aw::
-await_suspend(
+await_suspend_impl(
     std::coroutine_handle<> h) noexcept
 {
     // Dispatch to server's executor before touching shared state
-    return self_.dispatch_.dispatch(h);
+    return self_.ex_.dispatch(h);
 }
 
 void
@@ -50,7 +50,7 @@ await_resume() noexcept
         auto* wait = self_.waiters_;
         self_.waiters_ = wait->next;
         wait->w = &w_;
-        self_.post_.post(wait->h);
+        self_.ex_.post(wait->h);
     }
     else
     {
@@ -77,7 +77,7 @@ await_ready() const noexcept
 bool
 tcp_server::
 pop_aw::
-await_suspend(
+await_suspend_impl(
     std::coroutine_handle<> h) noexcept
 {
     wait_.h = h;
@@ -114,7 +114,7 @@ push_sync(worker_base& w) noexcept
         auto* wait = waiters_;
         waiters_ = wait->next;
         wait->w = &w;
-        post_.post(wait->h);
+        ex_.post(wait->h);
     }
     else
     {
@@ -138,7 +138,7 @@ tcp_server::do_accept(acceptor& acc)
         if(rv.has_error())
             continue;
         auto& w = rv.value();
-        auto ec = co_await acc.accept(w.socket());
+        auto [ec] = co_await acc.accept(w.socket());
         if(ec)
         {
             co_await push(w);
@@ -161,7 +161,7 @@ void
 tcp_server::start()
 {
     for(auto& t : ports_)
-        capy::run_async(post_)(do_accept(t));
+        capy::run_async(ex_)(do_accept(t));
 }
 
 } // namespace corosio

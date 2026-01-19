@@ -524,7 +524,7 @@ struct signal_set_test
                 std::raise(SIGINT);
 
                 auto result = co_await s.async_wait();
-                result_ok = static_cast<bool>(result);
+                result_ok = !result.ec;
             }());
 
         ioc.run();
@@ -545,7 +545,7 @@ struct signal_set_test
             [&]() -> capy::task<>
             {
                 auto result = co_await s.async_wait();
-                result_ok = static_cast<bool>(result);
+                result_ok = !result.ec;
                 result_ec = result.ec;
             }());
 

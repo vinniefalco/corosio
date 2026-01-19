@@ -504,7 +504,7 @@ struct timer_test
             [&]() -> capy::task<>
             {
                 auto result = co_await t.wait();
-                result_ok = static_cast<bool>(result);
+                result_ok = !result.ec;
             }());
 
         ioc.run();
@@ -528,7 +528,7 @@ struct timer_test
             [&]() -> capy::task<>
             {
                 auto result = co_await t.wait();
-                result_ok = static_cast<bool>(result);
+                result_ok = !result.ec;
                 result_ec = result.ec;
             }());
 
